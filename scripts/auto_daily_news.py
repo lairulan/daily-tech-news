@@ -119,7 +119,8 @@ def generate_news_html(yesterday):
 
 def generate_cover_image(title):
     """生成封面图"""
-    script = os.path.expanduser("~/.claude/skills/wechat-publish/scripts/generate_image.py")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script = os.path.join(script_dir, "generate_image.py")
 
     cmd = [
         "python3", script,
