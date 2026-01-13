@@ -1,0 +1,16 @@
+# 日志
+logs/
+*.log
+
+# 新闻文件
+news_*.md
+raw_news_*.json
+temp_*.md
+
+# 临时文件
+.DS_Store
+*.pyc
+__pycache__/
+
+# 环境变量
+.env

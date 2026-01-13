@@ -1,0 +1,41 @@
+name: 每日科技新闻
+
+on:
+  # 定时任务：每天 8:00 (UTC+8 = UTC+0 - 8小时 = 00:00 UTC)
+  schedule:
+    - cron: '0 0 * * *'
+
+  # 支持手动触发
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 安装依赖
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install requests
+
+      - name: 生成并发布新闻
+        env:
+          WECHAT_API_KEY: ${{ secrets.WECHAT_API_KEY }}
+          DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
+        run: |
+          cd scripts
+          python3 auto_daily_news.py
+
+      - name: 记录日志
+        if: always()
+        run: |
+          echo "任务执行时间: $(date)"
+          echo "时区: Asia/Shanghai"
