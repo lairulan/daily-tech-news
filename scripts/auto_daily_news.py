@@ -179,9 +179,13 @@ def publish_to_wechat(title, content, cover_url):
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         result = response.json()
-        return result.get("success", False)
+        log(f"API响应: {result}")
+        success = result.get("success", False)
+        if not success:
+            log(f"发布失败原因: {result.get('error', result)}")
+        return success
     except Exception as e:
-        log(f"发布失败: {e}")
+        log(f"发布异常: {e}")
         return False
 
 def main():
