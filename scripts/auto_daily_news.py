@@ -15,7 +15,10 @@ import requests
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY", "xhs_94c57efb6ea323e2496487fc2a5bcd8a")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY", "a26f05b1-4025-4d66-a43d-ea3a64b267cf")
 APPID = "wx5c5f1c55d02d1354"
-WORK_DIR = os.path.expanduser("~/.claude/skills/daily-tech-news")
+
+# 工作目录 - 兼容本地和 GitHub Actions
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "daily-news.log")
 
 API_BASE = "https://wx.limyai.com/api/openapi"
@@ -24,9 +27,14 @@ def log(message):
     """记录日志"""
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp}] {message}\n")
-    print(message)
+    log_msg = f"[{timestamp}] {message}"
+    print(log_msg)
+
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(log_msg + "\n")
+    except Exception:
+        pass  # 日志写入失败不影响主流程
 
 def call_doubao_api(prompt, max_tokens=2000):
     """调用豆包 API 生成内容"""
@@ -180,6 +188,8 @@ def main():
     """主函数"""
     log("=" * 50)
     log("开始执行每日新闻收集任务")
+    log(f"工作目录: {WORK_DIR}")
+    log(f"脚本目录: {SCRIPT_DIR}")
 
     # 计算昨天的日期
     yesterday = datetime.now() - timedelta(days=1)
@@ -187,12 +197,7 @@ def main():
     today_str = datetime.now().strftime("%Y%m%d")
 
     log(f"目标日期: {yesterday_str}")
-
-    # 检查是否已生成
-    news_file = os.path.join(WORK_DIR, f"news_{today_str}.md")
-    if os.path.exists(news_file):
-        log("今日已生成新闻文件，跳过")
-        return
+    log(f"当前日期: {today_str}")
 
     # 1. 生成新闻内容
     log("正在生成新闻内容...")
@@ -201,10 +206,7 @@ def main():
         log("新闻内容生成失败")
         return
 
-    # 保存内容
-    with open(news_file, "w", encoding="utf-8") as f:
-        f.write(content)
-    log(f"新闻内容已保存到: {news_file}")
+    log(f"生成的内容长度: {len(content)} 字符")
 
     # 2. 生成封面图
     log("正在生成封面图...")
