@@ -46,7 +46,7 @@ def call_doubao_api(prompt, max_tokens=2000):
     }
 
     payload = {
-        "model": "doubao-pro-256k",
+        "model": "doubao-seed-1-6-lite-251015",
         "messages": [
             {"role": "user", "content": prompt}
         ],
