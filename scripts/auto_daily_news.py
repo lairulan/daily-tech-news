@@ -10,6 +10,7 @@ import json
 import subprocess
 from datetime import datetime, timedelta
 import requests
+from zhdate import ZhDate
 
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
@@ -314,8 +315,9 @@ def main():
     weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     today_weekday = weekday_names[today.weekday()]
 
-    # 简化的农历日期（使用占位符，可以后续集成农历库）
-    today_lunar = f"农历乙巳年{today.month}月{today.day}日"
+    # 获取真实的农历日期
+    zh_date = ZhDate.from_datetime(today)
+    today_lunar = zh_date.chinese().split()[0]  # 例如: "二零二五年十一月二十七"
 
     log(f"今天日期: {today_date} {today_weekday}")
     log(f"新闻目标日期: {yesterday_str}")

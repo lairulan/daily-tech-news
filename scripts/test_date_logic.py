@@ -5,6 +5,7 @@
 """
 
 from datetime import datetime, timedelta
+from zhdate import ZhDate
 
 def test_date_logic():
     """测试日期逻辑"""
@@ -24,8 +25,9 @@ def test_date_logic():
     weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     today_weekday = weekday_names[today.weekday()]
 
-    # 简化的农历日期
-    today_lunar = f"农历乙巳年{today.month}月{today.day}日"
+    # 获取真实的农历日期
+    zh_date = ZhDate.from_datetime(today)
+    today_lunar = zh_date.chinese().split()[0]  # 例如: "二零二五年十一月二十七"
 
     print(f"\n✅ 今天日期: {today_date} {today_weekday}")
     print(f"✅ 农历日期: {today_lunar}")

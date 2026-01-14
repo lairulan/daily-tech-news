@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import re
 from email.utils import parsedate_to_datetime
+from zhdate import ZhDate
 
 # 创建 SSL 上下文（处理证书问题）
 ssl_context = ssl._create_unverified_context()
@@ -306,6 +307,16 @@ def call_doubao_api(prompt: str, max_tokens: int = 4000) -> str:
 
 def format_news_to_html(categorized_news: Dict[str, List[Dict]], yesterday: str) -> str:
     """将分类后的新闻格式化为 HTML"""
+    # 获取今天的日期信息
+    today = datetime.now()
+    weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    today_weekday = weekday_names[today.weekday()]
+    today_date = today.strftime("%Y年%m月%d日")
+
+    # 获取真实的农历日期
+    zh_date = ZhDate.from_datetime(today)
+    today_lunar = zh_date.chinese().split()[0]  # 例如: "二零二五年十一月二十七"
+
     # 准备新闻摘要
     news_summary = f"以下是{yesterday}通过 RSS 收集并分类的新闻：\n\n"
 
@@ -326,9 +337,9 @@ def format_news_to_html(categorized_news: Dict[str, List[Dict]], yesterday: str)
 <section style="padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;">
 
 <section style="text-align: center; padding: 20px 0 30px 0; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); border-radius: 15px; margin-bottom: 30px;">
-<p style="margin: 0; font-size: 14px; color: #666; letter-spacing: 1px;">农历乙巳年XX月XX</p>
-<p style="margin: 8px 0 0 0; font-size: 20px; font-weight: bold; color: #333; letter-spacing: 3px;">星期X</p>
-<p style="margin: 8px 0 0 0; font-size: 13px; color: #999;">2026年X月X日</p>
+<p style="margin: 0; font-size: 14px; color: #666; letter-spacing: 1px;">{today_lunar}</p>
+<p style="margin: 8px 0 0 0; font-size: 20px; font-weight: bold; color: #333; letter-spacing: 3px;">{today_weekday}</p>
+<p style="margin: 8px 0 0 0; font-size: 13px; color: #999;">{today_date}</p>
 </section>
 
 <section style="margin-bottom: 30px;">
