@@ -1,6 +1,6 @@
 ---
 name: daily-tech-news
-description: Daily AI, technology, and finance news curator. Searches for previous day's hot topics, organizes into categorized format with 15-20 items, and automatically publishes to WeChat Official Account. Use when user asks to collect daily news, create news digest, or publish tech/finance updates.
+description: Daily AI/tech/finance news curator. Collects previous day's hot topics (15 items in 3 categories), formats with styled HTML, and publishes to WeChat. Use when user asks to collect daily news or create tech digest.
 ---
 
 # Daily Tech News Publisher
@@ -13,63 +13,21 @@ This skill collects the previous day's hot news in AI + Technology + Finance cat
 
 ## Output Format
 
-**HTML 格式（渐变标签 + 清爽排版 + 编号）**：
+**HTML 格式（渐变标签 + 清爽排版 + 编号）**
 
-```html
-<section style="padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;">
-
-<section style="text-align: center; padding: 20px 0 30px 0; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); border-radius: 15px; margin-bottom: 30px;">
-<p style="margin: 0; font-size: 14px; color: #666; letter-spacing: 1px;">农历乙巳年腊月十四</p>
-<p style="margin: 8px 0 0 0; font-size: 20px; font-weight: bold; color: #333; letter-spacing: 3px;">星期二</p>
-<p style="margin: 8px 0 0 0; font-size: 13px; color: #999;">2026年1月13日</p>
-</section>
-
-<section style="margin-bottom: 30px;">
-<p style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">📱 AI 领域</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #667eea; font-weight: bold; margin-right: 8px;">01</span>新闻内容...</p>
-</div>
-</section>
-
-<section style="margin-bottom: 30px;">
-<p style="display: inline-block; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(245, 87, 108, 0.3);">💻 科技动态</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #f5576c; font-weight: bold; margin-right: 8px;">01</span>新闻内容...</p>
-</div>
-</section>
-
-<section style="margin-bottom: 30px;">
-<p style="display: inline-block; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);">💰 财经要闻</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #4facfe; font-weight: bold; margin-right: 8px;">01</span>新闻内容...</p>
-</div>
-</section>
-
-<section style="margin-top: 40px; padding: 25px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 15px;">
-<p style="margin: 0 0 12px 0; font-size: 16px; font-weight: bold; color: #fff; letter-spacing: 2px;">【 微 语 】</p>
-<p style="margin: 0; color: #fff; font-size: 15px; line-height: 1.8; text-align: justify;">微语内容...</p>
-</section>
-
-</section>
-```
-
-**样式说明**：
-- **日期卡片**：粉绿渐变背景 (#a8edea → #fed6e3)，三层信息（农历/星期/公历）
-- **渐变标签标题**：
-  - AI 领域：紫色渐变 (#667eea → #764ba2)，编号同色
-  - 科技动态：粉红渐变 (#f093fb → #f5576c)，编号同色
-  - 财经要闻：蓝色渐变 (#4facfe → #00f2fe)，编号同色
-- **微语卡片**：粉黄渐变背景 (#fa709a → #fee140)
-- **排版细节**：
-  - 标题圆角胶囊状 + 阴影
-  - 正文顶格，无缩进
-  - 编号 01-05，颜色与标题一致
-  - 行高 1.9，字号 15px
+内容结构：
+- **日期卡片**：粉绿渐变背景，显示农历/星期/公历
+- **三个分类标题**：
+  - 📱 AI 领域：紫色渐变 (#667eea → #764ba2)
+  - 💻 科技动态：粉红渐变 (#f093fb → #f5576c)
+  - 💰 财经要闻：蓝色渐变 (#4facfe → #00f2fe)
+- **每个分类 5 条新闻**：编号 01-05，颜色与标题一致
+- **微语卡片**：粉黄渐变背景，励志语录
 
 **发布参数**：
 - 格式：`news`（普通文章）
-- 必须生成封面图（使用豆包 SeeDream API，尺寸 2048x2048）
-- 使用 HTML 格式发布（contentFormat: html）
+- 封面图：使用豆包 SeeDream API，尺寸 2048x2048
+- 内容格式：HTML（contentFormat: html）
 
 ## Instructions
 
@@ -118,7 +76,7 @@ Create or select an inspiring quote related to technology, innovation, or life w
 Generate cover image using Doubao SeeDream API:
 
 ```bash
-DOUBAO_API_KEY="a26f05b1-4025-4d66-a43d-ea3a64b267cf" python3 ~/.claude/skills/wechat-publish/scripts/generate_image.py cover \
+DOUBAO_API_KEY="your-doubao-api-key" python3 ~/.claude/skills/wechat-publish/scripts/generate_image.py cover \
   --title "X月X日AI科技财经日报" \
   --style "tech" \
   --retry 3 \
@@ -136,8 +94,8 @@ DOUBAO_API_KEY="a26f05b1-4025-4d66-a43d-ea3a64b267cf" python3 ~/.claude/skills/w
 
 ```bash
 # Set environment variables
-export WECHAT_API_KEY="xhs_94c57efb6ea323e2496487fc2a5bcd8a"
-export DOUBAO_API_KEY="a26f05b1-4025-4d66-a43d-ea3a64b267cf"
+export WECHAT_API_KEY="your-wechat-api-key"
+export DOUBAO_API_KEY="your-doubao-api-key"
 
 # Publish with cover image and styled HTML content
 python3 ~/.claude/skills/wechat-publish/scripts/publish.py publish \

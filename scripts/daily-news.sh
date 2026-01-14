@@ -4,9 +4,15 @@
 # 每天 8:00 自动收集前一天的新闻并发布到公众号
 #
 
-# 配置环境变量
-export WECHAT_API_KEY="xhs_94c57efb6ea323e2496487fc2a5bcd8a"
-export DOUBAO_API_KEY="a26f05b1-4025-4d66-a43d-ea3a64b267cf"
+# 配置环境变量（请在系统环境中设置）
+# export WECHAT_API_KEY="your-wechat-api-key"
+# export DOUBAO_API_KEY="your-doubao-api-key"
+
+# 检查环境变量
+if [ -z "$WECHAT_API_KEY" ] || [ -z "$DOUBAO_API_KEY" ]; then
+    echo "错误: 请设置 WECHAT_API_KEY 和 DOUBAO_API_KEY 环境变量" | tee -a "$LOG_FILE"
+    exit 1
+fi
 
 # 配置参数
 WORK_DIR="$HOME/.claude/skills/daily-tech-news"

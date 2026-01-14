@@ -20,9 +20,15 @@ from email.utils import parsedate_to_datetime
 ssl_context = ssl._create_unverified_context()
 
 # 配置
-DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY", "a26f05b1-4025-4d66-a43d-ea3a64b267cf")
+DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 WORK_DIR = os.path.expanduser("~/.claude/skills/daily-tech-news")
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
+
+# 检查 API Key
+if not DOUBAO_API_KEY:
+    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
+    print("请运行: export DOUBAO_API_KEY='your-api-key'")
+    sys.exit(1)
 
 # RSS 源配置（所有源统一收集）
 ALL_RSS_SOURCES = [
@@ -73,6 +79,12 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
         # 尝试不同的 RSS/Atom 格式
         item_elements = root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
 
+        # 精确的时间过滤：只收集昨天一整天的新闻
+        now = datetime.now()
+        yesterday_start = datetime(now.year, now.month, now.day) - timedelta(days=1)  # 昨天 00:00:00
+        yesterday_end = datetime(now.year, now.month, now.day) - timedelta(seconds=1)  # 昨天 23:59:59
+
+        # 备用：如果需要更宽松的时间窗口（过去24小时）
         cutoff_time = datetime.now() - timedelta(hours=hours_ago)
 
         for elem in item_elements[:limit * 2]:
@@ -128,14 +140,27 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
                     break
             item['source'] = source_text if source_text else '未知来源'
 
-            # 简单的时间检查（如果可以解析的话）
+            # 精确的时间检查：只收集昨天的新闻
             if item['published']:
                 try:
                     pub_time = parsedate_to_datetime(item['published'])
-                    if pub_time < cutoff_time:
+                    # 转换为本地时区（北京时间）进行比较
+                    pub_time_local = pub_time.astimezone()
+
+                    # 提取日期部分进行比较（忽略具体时间）
+                    pub_date = pub_time_local.date()
+                    yesterday_date = yesterday_start.date()
+
+                    # 只保留昨天的新闻
+                    if pub_date != yesterday_date:
                         continue
+
+                    # 记录新闻的发布时间（用于调试）
+                    item['parsed_time'] = pub_time_local.strftime("%Y-%m-%d %H:%M:%S")
                 except:
-                    pass  # 无法解析时间，跳过检查
+                    # 无法解析时间，使用宽松的时间窗口（过去24小时）
+                    # 这样可以确保不会遗漏重要新闻
+                    pass
 
             items.append(item)
 
@@ -149,7 +174,13 @@ def collect_all_news() -> List[Dict]:
     """收集所有 RSS 新闻到一起"""
     all_items = []
 
+    # 计算时间范围用于日志
+    now = datetime.now()
+    yesterday_start = datetime(now.year, now.month, now.day) - timedelta(days=1)
+    yesterday_end = datetime(now.year, now.month, now.day) - timedelta(seconds=1)
+
     log("开始收集 RSS 新闻...")
+    log(f"时间过滤范围: {yesterday_start.strftime('%Y-%m-%d %H:%M:%S')} 到 {yesterday_end.strftime('%Y-%m-%d %H:%M:%S')}")
 
     for source in ALL_RSS_SOURCES:
         log(f"  - {source['name']}")

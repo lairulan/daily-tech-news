@@ -12,9 +12,20 @@ from datetime import datetime, timedelta
 import requests
 
 # 配置
-WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY", "xhs_94c57efb6ea323e2496487fc2a5bcd8a")
-DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY", "a26f05b1-4025-4d66-a43d-ea3a64b267cf")
+WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
+DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 APPID = "wx5c5f1c55d02d1354"  # 三更
+
+# 检查必需的环境变量
+if not WECHAT_API_KEY:
+    print("错误: 未设置 WECHAT_API_KEY 环境变量")
+    print("请运行: export WECHAT_API_KEY='your-api-key'")
+    sys.exit(1)
+
+if not DOUBAO_API_KEY:
+    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
+    print("请运行: export DOUBAO_API_KEY='your-api-key'")
+    sys.exit(1)
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -63,52 +74,135 @@ def call_doubao_api(prompt, max_tokens=2000):
         log(f"豆包 API 调用失败: {e}")
         return None
 
-def generate_news_html(yesterday):
-    """生成新闻 HTML 内容"""
-    prompt = f"""请生成{yesterday}的AI科技财经日报，格式如下（严格按此格式输出，只输出HTML代码）：
+def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date):
+    """使用 RSS 收集器生成真实新闻 HTML 内容
 
-<section style="padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;">
+    Args:
+        yesterday_str: 昨天的日期字符串（用于新闻内容）
+        today_lunar: 今天的农历日期
+        today_weekday: 今天的星期
+        today_date: 今天的公历日期
+    """
+    log("正在从 RSS 源收集真实新闻...")
 
-<section style="text-align: center; padding: 20px 0 30px 0; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); border-radius: 15px; margin-bottom: 30px;">
-<p style="margin: 0; font-size: 14px; color: #666; letter-spacing: 1px;">农历乙巳年XX月XX</p>
-<p style="margin: 8px 0 0 0; font-size: 20px; font-weight: bold; color: #333; letter-spacing: 3px;">星期X</p>
-<p style="margin: 8px 0 0 0; font-size: 13px; color: #999;">2026年X月X日</p>
+    # 调用 RSS 收集器
+    rss_script = os.path.join(SCRIPT_DIR, "rss_news_collector.py")
+    try:
+        result = subprocess.run(
+            ["python3", rss_script],
+            capture_output=True,
+            text=True,
+            timeout=180
+        )
+
+        if result.returncode != 0:
+            log(f"RSS 收集失败: {result.stderr}")
+            return None
+
+        log("RSS 新闻收集成功")
+
+        # 读取生成的 HTML 文件
+        today_str = datetime.now().strftime("%Y%m%d")
+        html_file = os.path.join(WORK_DIR, f"news_{today_str}.md")
+
+        with open(html_file, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+
+        # 替换日期卡片为紫色渐变样式
+        # 原样式是浅色渐变，需要替换为紫色渐变
+        old_date_card = '<section style="text-align: center; padding: 20px 0 30px 0; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); border-radius: 15px; margin-bottom: 30px;">'
+        new_date_card = '<section style="text-align: center; padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; margin-bottom: 30px; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);">'
+
+        html_content = html_content.replace(old_date_card, new_date_card)
+
+        # 更新日期卡片中的文字颜色为白色
+        import re
+        # 替换日期卡片内的颜色
+        html_content = re.sub(
+            r'<p style="margin: 0; font-size: 14px; color: #666;',
+            '<p style="margin: 0; font-size: 13px; color: rgba(255,255,255,0.8);',
+            html_content
+        )
+        html_content = re.sub(
+            r'<p style="margin: 8px 0 0 0; font-size: 20px; font-weight: bold; color: #333;',
+            '<p style="margin: 10px 0; font-size: 28px; font-weight: bold; color: #fff;',
+            html_content
+        )
+        html_content = re.sub(
+            r'<p style="margin: 8px 0 0 0; font-size: 13px; color: #999;',
+            '<p style="margin: 0; font-size: 14px; color: rgba(255,255,255,0.9);',
+            html_content
+        )
+
+        return html_content
+
+    except Exception as e:
+        log(f"RSS 收集异常: {e}")
+        return None
+
+def generate_news_html(yesterday_str, today_lunar, today_weekday, today_date):
+    """生成新闻 HTML 内容（备用方案，如果 RSS 失败则使用）
+
+    Args:
+        yesterday_str: 昨天的日期字符串（用于新闻内容）
+        today_lunar: 今天的农历日期
+        today_weekday: 今天的星期
+        today_date: 今天的公历日期
+    """
+    prompt = f"""请生成{yesterday_str}的AI科技财经日报。
+
+重要说明：
+1. 日期卡片显示的是今天（{today_date}）的日期信息
+2. 新闻内容是昨天（{yesterday_str}）发生的事情
+3. 严格按照以下格式输出，只输出HTML代码
+
+<section style="padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif; background: #f8f9fa;">
+
+<!-- 日期卡片 - 显示今天的日期 -->
+<section style="text-align: center; padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; margin-bottom: 30px; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);">
+<p style="margin: 0; font-size: 13px; color: rgba(255,255,255,0.8); letter-spacing: 1px;">{today_lunar}</p>
+<p style="margin: 10px 0; font-size: 28px; font-weight: bold; color: #fff; letter-spacing: 4px;">{today_weekday}</p>
+<p style="margin: 0; font-size: 14px; color: rgba(255,255,255,0.9);">{today_date}</p>
 </section>
 
-<section style="margin-bottom: 30px;">
+<!-- AI 领域 -->
+<section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
 <p style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">📱 AI 领域</p>
 <div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #667eea; font-weight: bold; margin-right: 8px;">01</span>AI新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #667eea; font-weight: bold; margin-right: 8px;">02</span>AI新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #667eea; font-weight: bold; margin-right: 8px;">03</span>AI新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #667eea; font-weight: bold; margin-right: 8px;">04</span>AI新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #667eea; font-weight: bold; margin-right: 8px;">05</span>AI新闻5</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">01</span>AI新闻1</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">02</span>AI新闻2</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">03</span>AI新闻3</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">04</span>AI新闻4</p>
+<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">05</span>AI新闻5</p>
 </div>
 </section>
 
-<section style="margin-bottom: 30px;">
+<!-- 科技动态 -->
+<section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
 <p style="display: inline-block; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(245, 87, 108, 0.3);">💻 科技动态</p>
 <div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #f5576c; font-weight: bold; margin-right: 8px;">01</span>科技新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #f5576c; font-weight: bold; margin-right: 8px;">02</span>科技新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #f5576c; font-weight: bold; margin-right: 8px;">03</span>科技新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #f5576c; font-weight: bold; margin-right: 8px;">04</span>科技新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #f5576c; font-weight: bold; margin-right: 8px;">05</span>科技新闻5</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">01</span>科技新闻1</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">02</span>科技新闻2</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">03</span>科技新闻3</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">04</span>科技新闻4</p>
+<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">05</span>科技新闻5</p>
 </div>
 </section>
 
-<section style="margin-bottom: 30px;">
+<!-- 财经要闻 -->
+<section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
 <p style="display: inline-block; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);">💰 财经要闻</p>
 <div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #4facfe; font-weight: bold; margin-right: 8px;">01</span>财经新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #4facfe; font-weight: bold; margin-right: 8px;">02</span>财经新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #4facfe; font-weight: bold; margin-right: 8px;">03</span>财经新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #4facfe; font-weight: bold; margin-right: 8px;">04</span>财经新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #4facfe; font-weight: bold; margin-right: 8px;">05</span>财经新闻5</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">01</span>财经新闻1</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">02</span>财经新闻2</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">03</span>财经新闻3</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">04</span>财经新闻4</p>
+<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">05</span>财经新闻5</p>
 </div>
 </section>
 
-<section style="margin-top: 40px; padding: 25px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 15px;">
+<!-- 微语 -->
+<section style="margin-top: 30px; padding: 25px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 15px; box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);">
 <p style="margin: 0 0 12px 0; font-size: 16px; font-weight: bold; color: #fff; letter-spacing: 2px;">【 微 语 】</p>
 <p style="margin: 0; color: #fff; font-size: 15px; line-height: 1.8; text-align: justify;">一句关于技术、创新或人生的励志语录...</p>
 </section>
@@ -123,6 +217,19 @@ def generate_news_html(yesterday):
 5. 只输出HTML代码，不要其他文字"""
 
     content = call_doubao_api(prompt, max_tokens=3000)
+
+    # 清理markdown代码块标记
+    if content:
+        content = content.strip()
+        # 移除开头的 ```html 或 ```
+        if content.startswith("```html"):
+            content = content[7:].strip()
+        elif content.startswith("```"):
+            content = content[3:].strip()
+        # 移除结尾的 ```
+        if content.endswith("```"):
+            content = content[:-3].strip()
+
     return content
 
 def generate_cover_image(title):
@@ -195,17 +302,33 @@ def main():
     log(f"工作目录: {WORK_DIR}")
     log(f"脚本目录: {SCRIPT_DIR}")
 
-    # 计算昨天的日期
-    yesterday = datetime.now() - timedelta(days=1)
+    # 计算日期
+    today = datetime.now()
+    yesterday = today - timedelta(days=1)
+
+    # 格式化日期字符串
     yesterday_str = yesterday.strftime("%Y年%m月%d日")
-    today_str = datetime.now().strftime("%Y%m%d")
+    today_date = today.strftime("%Y年%m月%d日")
 
-    log(f"目标日期: {yesterday_str}")
-    log(f"当前日期: {today_str}")
+    # 获取今天的星期
+    weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    today_weekday = weekday_names[today.weekday()]
 
-    # 1. 生成新闻内容
+    # 简化的农历日期（使用占位符，可以后续集成农历库）
+    today_lunar = f"农历乙巳年{today.month}月{today.day}日"
+
+    log(f"今天日期: {today_date} {today_weekday}")
+    log(f"新闻目标日期: {yesterday_str}")
+
+    # 1. 生成新闻内容（优先使用 RSS 收集器获取真实新闻）
     log("正在生成新闻内容...")
-    content = generate_news_html(yesterday_str)
+    content = generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date)
+
+    # 如果 RSS 收集失败，使用备用方案
+    if not content:
+        log("RSS 收集失败，使用备用方案生成新闻...")
+        content = generate_news_html(yesterday_str, today_lunar, today_weekday, today_date)
+
     if not content:
         log("新闻内容生成失败")
         return
@@ -214,14 +337,14 @@ def main():
 
     # 2. 生成封面图
     log("正在生成封面图...")
-    cover_url = generate_cover_image(f"{yesterday.month}月{yesterday.day}日AI科技财经日报")
+    cover_url = generate_cover_image(f"{today.month}月{today.day}日AI科技财经日报")
     if not cover_url:
         log("封面图生成失败，将不使用封面图发布")
         cover_url = ""
 
     # 3. 发布到公众号
     log("正在发布到公众号...")
-    title = f"{yesterday.month}月{yesterday.day}日AI科技财经日报"
+    title = f"{today.month}月{today.day}日AI科技财经日报"
     success = publish_to_wechat(title, content, cover_url)
 
     if success:
