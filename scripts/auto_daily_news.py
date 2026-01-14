@@ -14,7 +14,7 @@ import requests
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY", "xhs_94c57efb6ea323e2496487fc2a5bcd8a")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY", "a26f05b1-4025-4d66-a43d-ea3a64b267cf")
-APPID = "wx5c5f1c55d02d1354"
+APPID = "wx287cdb9d78a498aa"  # 三更愿
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -11,7 +11,7 @@ export DOUBAO_API_KEY="a26f05b1-4025-4d66-a43d-ea3a64b267cf"
 # 配置参数
 WORK_DIR="$HOME/.claude/skills/daily-tech-news"
 LOG_FILE="$WORK_DIR/logs/daily-news.log"
-APPID="wx5c5f1c55d02d1354"
+APPID="wx287cdb9d78a498aa"  # 三更愿
 PYTHON_SCRIPT="$HOME/.claude/skills/wechat-publish/scripts/publish.py"
 
 # 创建日志目录
