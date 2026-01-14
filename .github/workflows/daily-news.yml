@@ -24,15 +24,19 @@ jobs:
       - name: 安装依赖
         run: |
           python3 -m pip install --upgrade pip
-          pip install requests
+          pip install requests urllib3
 
       - name: 生成并发布新闻
         env:
           WECHAT_API_KEY: ${{ secrets.WECHAT_API_KEY }}
           DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
         run: |
+          set -x  # 显示执行的命令
           cd scripts
-          python3 auto_daily_news.py
+          python3 auto_daily_news.py 2>&1 || {
+            echo "::error::脚本执行失败"
+            exit 1
+          }
 
       - name: 记录日志
         if: always()
