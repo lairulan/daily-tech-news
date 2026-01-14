@@ -24,7 +24,7 @@ jobs:
       - name: 安装依赖
         run: |
           python3 -m pip install --upgrade pip
-          pip install requests urllib3
+          pip install requests urllib3 zhdate
 
       - name: 生成并发布新闻
         env:
