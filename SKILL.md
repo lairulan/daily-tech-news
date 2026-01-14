@@ -3,9 +3,9 @@ name: daily-tech-news
 description: Daily AI/tech/finance news curator. Collects previous day's hot topics (15 items in 3 categories), formats with styled HTML, and publishes to WeChat. Use when user asks to collect daily news or create tech digest.
 ---
 
-# Daily Tech News Publisher
+# Daily Tech News Publisher V2.0.0
 
-Automatic daily news curation for AI, technology, and finance domains.
+Automatic daily news curation for AI, technology, and finance domains using RSS feeds.
 
 ## Overview
 
