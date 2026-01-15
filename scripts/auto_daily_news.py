@@ -89,15 +89,23 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
     # 调用 RSS 收集器
     rss_script = os.path.join(SCRIPT_DIR, "rss_news_collector.py")
     try:
+        log(f"调用 RSS 收集器: {rss_script}")
         result = subprocess.run(
             ["python3", rss_script],
             capture_output=True,
             text=True,
-            timeout=180
+            timeout=180,
+            cwd=SCRIPT_DIR
         )
 
+        # 记录 stdout 和 stderr
+        if result.stdout:
+            log(f"RSS 收集器输出: {result.stdout[:500]}")
+        if result.stderr:
+            log(f"RSS 收集器错误: {result.stderr[:500]}")
+
         if result.returncode != 0:
-            log(f"RSS 收集失败: {result.stderr}")
+            log(f"RSS 收集失败，退出码: {result.returncode}")
             return None
 
         log("RSS 新闻收集成功")
@@ -106,8 +114,16 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
         today_str = datetime.now().strftime("%Y%m%d")
         html_file = os.path.join(WORK_DIR, f"news_{today_str}.md")
 
+        if not os.path.exists(html_file):
+            log(f"HTML 文件不存在: {html_file}")
+            return None
+
         with open(html_file, 'r', encoding='utf-8') as f:
             html_content = f.read()
+
+        if not html_content or len(html_content) < 100:
+            log(f"HTML 内容为空或过短: {len(html_content)} 字符")
+            return None
 
         # 替换日期卡片为紫色渐变样式
         # 原样式是浅色渐变，需要替换为紫色渐变
@@ -137,8 +153,14 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
 
         return html_content
 
+    except subprocess.TimeoutExpired as e:
+        log(f"RSS 收集超时 (180秒): {e}")
+        return None
+    except FileNotFoundError as e:
+        log(f"RSS 收集器脚本未找到: {e}")
+        return None
     except Exception as e:
-        log(f"RSS 收集异常: {e}")
+        log(f"RSS 收集异常: {type(e).__name__}: {e}")
         return None
 
 def generate_news_html(yesterday_str, today_lunar, today_weekday, today_date):
@@ -249,15 +271,38 @@ def generate_cover_image(title):
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        log(f"调用封面图生成器: {script}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=script_dir)
+
+        # 记录输出
+        if result.stdout:
+            log(f"封面图生成器输出: {result.stdout[:300]}")
+        if result.stderr:
+            log(f"封面图生成器错误: {result.stderr[:300]}")
+
         if result.returncode == 0:
-            output = json.loads(result.stdout)
-            if output.get("success"):
-                return output.get("url")
-        log(f"封面图生成失败: {result.stderr}")
+            try:
+                output = json.loads(result.stdout)
+                if output.get("success"):
+                    cover_url = output.get("url")
+                    log(f"封面图生成成功: {cover_url}")
+                    return cover_url
+                else:
+                    log(f"封面图生成失败: {output.get('error', '未知错误')}")
+            except json.JSONDecodeError as e:
+                log(f"解析封面图生成器输出失败: {e}")
+        else:
+            log(f"封面图生成失败，退出码: {result.returncode}")
+
+        return None
+    except subprocess.TimeoutExpired as e:
+        log(f"封面图生成超时 (120秒): {e}")
+        return None
+    except FileNotFoundError as e:
+        log(f"封面图生成器脚本未找到: {e}")
         return None
     except Exception as e:
-        log(f"封面图生成异常: {e}")
+        log(f"封面图生成异常: {type(e).__name__}: {e}")
         return None
 
 def publish_to_wechat(title, content, cover_url):
@@ -332,8 +377,8 @@ def main():
         content = generate_news_html(yesterday_str, today_lunar, today_weekday, today_date)
 
     if not content:
-        log("新闻内容生成失败")
-        return
+        log("新闻内容生成失败", "ERROR")
+        sys.exit(1)
 
     log(f"生成的内容长度: {len(content)} 字符")
 
@@ -351,11 +396,12 @@ def main():
 
     if success:
         log("发布成功！")
+        log("任务完成")
+        log("=" * 50)
     else:
         log("发布失败")
-
-    log("任务完成")
-    log("=" * 50)
+        log("=" * 50)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

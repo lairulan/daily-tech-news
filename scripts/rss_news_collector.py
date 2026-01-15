@@ -22,7 +22,9 @@ ssl_context = ssl._create_unverified_context()
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
-WORK_DIR = os.path.expanduser("~/.claude/skills/daily-tech-news")
+# 工作目录 - 兼容本地和 GitHub Actions
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
 # 检查 API Key
