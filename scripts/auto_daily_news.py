@@ -377,7 +377,7 @@ def main():
         content = generate_news_html(yesterday_str, today_lunar, today_weekday, today_date)
 
     if not content:
-        log("新闻内容生成失败", "ERROR")
+        log("新闻内容生成失败")
         sys.exit(1)
 
     log(f"生成的内容长度: {len(content)} 字符")
