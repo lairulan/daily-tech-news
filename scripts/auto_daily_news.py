@@ -35,6 +35,28 @@ LOG_FILE = os.path.join(WORK_DIR, "logs", "daily-news.log")
 
 API_BASE = "https://wx.limyai.com/api/openapi"
 
+def get_traditional_lunar_date(dt):
+    """获取传统农历日期格式：乙巳年冬月廿七"""
+    zh_date = ZhDate.from_datetime(dt)
+
+    # 获取天干地支年
+    chinese_full = zh_date.chinese()
+    parts = chinese_full.split()
+    gz_year = parts[1] if len(parts) >= 2 else ''
+
+    # 农历月份（传统写法）
+    months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
+              '七月', '八月', '九月', '十月', '冬月', '腊月']
+    lunar_month = months[zh_date.lunar_month]
+
+    # 农历日期（传统写法）
+    days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+            '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+            '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
+    lunar_day = days[zh_date.lunar_day]
+
+    return f'{gz_year}{lunar_month}{lunar_day}'
+
 def log(message):
     """记录日志"""
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -360,11 +382,11 @@ def main():
     weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     today_weekday = weekday_names[today.weekday()]
 
-    # 获取真实的农历日期
-    zh_date = ZhDate.from_datetime(today)
-    today_lunar = zh_date.chinese().split()[0]  # 例如: "二零二五年十一月二十七"
+    # 获取传统农历日期
+    today_lunar = get_traditional_lunar_date(today)  # 例如: "乙巳年冬月廿七"
 
     log(f"今天日期: {today_date} {today_weekday}")
+    log(f"农历日期: {today_lunar}")
     log(f"新闻目标日期: {yesterday_str}")
 
     # 1. 生成新闻内容（优先使用 RSS 收集器获取真实新闻）

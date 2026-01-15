@@ -275,6 +275,28 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
         log(f"原始结果: {result[:500]}")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
 
+def get_traditional_lunar_date(dt: datetime) -> str:
+    """获取传统农历日期格式：乙巳年冬月廿七"""
+    zh_date = ZhDate.from_datetime(dt)
+
+    # 获取天干地支年
+    chinese_full = zh_date.chinese()
+    parts = chinese_full.split()
+    gz_year = parts[1] if len(parts) >= 2 else ''
+
+    # 农历月份（传统写法）
+    months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
+              '七月', '八月', '九月', '十月', '冬月', '腊月']
+    lunar_month = months[zh_date.lunar_month]
+
+    # 农历日期（传统写法）
+    days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+            '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+            '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
+    lunar_day = days[zh_date.lunar_day]
+
+    return f'{gz_year}{lunar_month}{lunar_day}'
+
 def call_doubao_api(prompt: str, max_tokens: int = 4000) -> str:
     """调用豆包 API"""
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
@@ -315,9 +337,8 @@ def format_news_to_html(categorized_news: Dict[str, List[Dict]], yesterday: str)
     today_weekday = weekday_names[today.weekday()]
     today_date = today.strftime("%Y年%m月%d日")
 
-    # 获取真实的农历日期
-    zh_date = ZhDate.from_datetime(today)
-    today_lunar = zh_date.chinese().split()[0]  # 例如: "二零二五年十一月二十七"
+    # 获取传统农历日期
+    today_lunar = get_traditional_lunar_date(today)  # 例如: "乙巳年冬月廿七"
 
     # 准备新闻摘要
     news_summary = f"以下是{yesterday}通过 RSS 收集并分类的新闻：\n\n"
