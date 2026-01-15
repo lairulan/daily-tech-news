@@ -1,9 +1,9 @@
 name: 每日科技新闻
 
 on:
-  # 定时任务：每天 8:00 (UTC+8 = UTC+0 - 8小时 = 00:00 UTC)
+  # 定时任务：每天 8:30 (UTC+8 = UTC+0 - 8小时 = 00:30 UTC)
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '30 0 * * *'
 
   # 支持手动触发
   workflow_dispatch:
