@@ -7,6 +7,7 @@
 import os
 import sys
 import json
+import re
 import subprocess
 from datetime import datetime, timedelta
 import requests
@@ -69,6 +70,16 @@ def log(message):
             f.write(log_msg + "\n")
     except Exception:
         pass  # 日志写入失败不影响主流程
+
+def extract_text_from_html(html_content):
+    """从 HTML 中提取纯文本内容，用于生成摘要"""
+    # 移除 HTML 标签
+    text = re.sub(r'<[^>]+>', ' ', html_content)
+    # 移除多余空白
+    text = re.sub(r'\s+', ' ', text).strip()
+    # 移除特殊字符编码
+    text = text.replace('&nbsp;', ' ').replace('&amp;', '&')
+    return text
 
 def call_doubao_api(prompt, max_tokens=2000):
     """调用豆包 API 生成内容"""
@@ -336,9 +347,20 @@ def publish_to_wechat(title, content, cover_url):
         "Content-Type": "application/json"
     }
 
-    # 生成摘要
-    summary_prompt = f"请用一句话总结以下新闻日报的主要内容（30字以内）：\n{content[:500]}"
+    # 生成摘要 - 先提取纯文本再让 AI 生成摘要
+    plain_text = extract_text_from_html(content)
+    summary_prompt = f"""请根据以下新闻日报内容，生成一句简洁的摘要（20-30字），要求：
+1. 提炼出当天最重要的1-2个新闻亮点
+2. 语言简洁有力，吸引读者点击
+3. 不要包含日期信息
+
+新闻内容：
+{plain_text[:800]}"""
     summary = call_doubao_api(summary_prompt, max_tokens=100)
+    if summary:
+        # 清理可能的多余内容
+        summary = summary.strip().strip('"\'')
+        log(f"生成摘要: {summary}")
 
     payload = {
         "wechatAppid": APPID,
