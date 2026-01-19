@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 图片生成脚本
-使用 Gemini API 生成图片，上传到 imgbb 图床
+支持 OpenRouter (Gemini) 和 豆包 API
 """
 
 import os
@@ -11,38 +11,150 @@ import base64
 import argparse
 import subprocess
 import tempfile
+import time
+import urllib.request
+import urllib.error
+import ssl
+
+# 创建 SSL 上下文
+ssl_context = ssl._create_unverified_context()
 
 # API 配置
 DOUBAO_IMAGE_API_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
 DOUBAO_IMAGE_MODEL = "doubao-seedream-4-5-251128"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_IMAGE_MODEL = "google/gemini-2.5-flash-image"
 IMGBB_API_URL = "https://api.imgbb.com/1/upload"
 
-def get_env_var(name, default=None):
+def get_env_var(name, default=None, required=True):
     """获取环境变量"""
     value = os.environ.get(name, default)
-    if not value:
-        print(json.dumps({
-            "success": False,
-            "error": f"环境变量 {name} 未设置",
-            "code": "ENV_VAR_MISSING"
-        }, ensure_ascii=False))
-        sys.exit(1)
+    if required and not value:
+        return None
     return value
 
-def generate_image(prompt, retry=3, retry_delay=3, size="2048x2048"):
-    """调用豆包图片生成 API（带重试机制）"""
-    api_key = get_env_var("DOUBAO_API_KEY")
+def log_stderr(message):
+    """输出日志到 stderr"""
+    print(json.dumps(message, ensure_ascii=False), file=sys.stderr)
 
-    import time
+def generate_image_openrouter(prompt, retry=3, retry_delay=3, size="1024x1024"):
+    """使用 OpenRouter (Gemini) 生成图片"""
+    api_key = get_env_var("OPENROUTER_API_KEY", required=True)
+    if not api_key:
+        return {"success": False, "error": "未设置 OPENROUTER_API_KEY", "code": "ENV_VAR_MISSING"}
+
     last_error = None
 
     for attempt in range(retry):
         if attempt > 0:
-            print(json.dumps({
-                "status": "retrying",
-                "message": f"重试第 {attempt}/{retry-1} 次...",
-                "delay": retry_delay
-            }, ensure_ascii=False), file=sys.stderr)
+            log_stderr({"status": "retrying", "message": f"OpenRouter 重试第 {attempt}/{retry-1} 次...", "delay": retry_delay})
+            time.sleep(retry_delay)
+
+        payload = {
+            "model": OPENROUTER_IMAGE_MODEL,
+            "messages": [{"role": "user", "content": f"Generate an image: {prompt}"}],
+            "max_tokens": 4096
+        }
+
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(
+                OPENROUTER_API_URL,
+                data=data,
+                headers={
+                    'Authorization': f"Bearer {api_key}",
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': 'https://github.com/lairulan/daily-tech-news',
+                    'X-Title': 'Daily Tech News'
+                }
+            )
+
+            with urllib.request.urlopen(req, timeout=180, context=ssl_context) as response:
+                result = json.loads(response.read().decode('utf-8'))
+
+            # 提取图片
+            choices = result.get('choices', [])
+            if choices:
+                msg = choices[0].get('message', {})
+                images = msg.get('images', [])
+
+                if images:
+                    img = images[0]
+                    image_url = img.get('image_url', {})
+                    if isinstance(image_url, dict):
+                        url = image_url.get('url', '')
+                    else:
+                        url = str(image_url)
+
+                    if url:
+                        # 如果是 base64，需要上传到图床
+                        if url.startswith('data:image'):
+                            log_stderr({"status": "uploading", "message": "图片生成成功，正在上传到图床..."})
+                            # 提取 base64 数据
+                            base64_data = url.split(',')[1] if ',' in url else url
+                            upload_result = upload_to_imgbb(base64_data, retry=retry, retry_delay=retry_delay)
+                            if upload_result.get('success'):
+                                return {
+                                    "success": True,
+                                    "url": upload_result['url'],
+                                    "display_url": upload_result.get('display_url', upload_result['url']),
+                                    "attempts": attempt + 1,
+                                    "source": "openrouter-gemini"
+                                }
+                            else:
+                                last_error = upload_result
+                                continue
+                        else:
+                            # 直接返回 URL
+                            return {
+                                "success": True,
+                                "url": url,
+                                "attempts": attempt + 1,
+                                "source": "openrouter-gemini"
+                            }
+
+            last_error = {
+                "success": False,
+                "error": "未能从响应中提取图片",
+                "code": "NO_IMAGE",
+                "attempt": attempt + 1
+            }
+            log_stderr(last_error)
+
+        except urllib.error.URLError as e:
+            last_error = {
+                "success": False,
+                "error": f"网络错误: {str(e)}",
+                "code": "NETWORK_ERROR",
+                "attempt": attempt + 1
+            }
+            log_stderr(last_error)
+        except Exception as e:
+            last_error = {
+                "success": False,
+                "error": str(e),
+                "code": "UNKNOWN_ERROR",
+                "attempt": attempt + 1
+            }
+            log_stderr(last_error)
+
+    return last_error if last_error else {
+        "success": False,
+        "error": "OpenRouter 图片生成失败",
+        "code": "ALL_RETRIES_FAILED"
+    }
+
+def generate_image_doubao(prompt, retry=3, retry_delay=3, size="2048x2048"):
+    """使用豆包 API 生成图片（备用）"""
+    api_key = get_env_var("DOUBAO_API_KEY", required=True)
+    if not api_key:
+        return {"success": False, "error": "未设置 DOUBAO_API_KEY", "code": "ENV_VAR_MISSING"}
+
+    last_error = None
+
+    for attempt in range(retry):
+        if attempt > 0:
+            log_stderr({"status": "retrying", "message": f"豆包重试第 {attempt}/{retry-1} 次...", "delay": retry_delay})
             time.sleep(retry_delay)
 
         data = {
@@ -65,19 +177,16 @@ def generate_image(prompt, retry=3, retry_delay=3, size="2048x2048"):
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             response = json.loads(result.stdout)
 
-            # 检查是否有错误
             if "error" in response:
                 last_error = {
                     "success": False,
                     "error": f"API错误: {response['error'].get('message', str(response['error']))}",
                     "code": "API_ERROR",
-                    "attempt": attempt + 1,
-                    "response": str(response)[:500]
+                    "attempt": attempt + 1
                 }
-                print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+                log_stderr(last_error)
                 continue
 
-            # 提取图片 URL（豆包直接返回 URL）
             if "data" in response and len(response["data"]) > 0:
                 image_url = response["data"][0].get("url")
                 if image_url:
@@ -91,75 +200,52 @@ def generate_image(prompt, retry=3, retry_delay=3, size="2048x2048"):
             last_error = {
                 "success": False,
                 "error": "未能从响应中提取图片 URL",
-                "response": str(response)[:500],
                 "attempt": attempt + 1
             }
-            print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+            log_stderr(last_error)
 
         except subprocess.TimeoutExpired:
-            last_error = {
-                "success": False,
-                "error": "图片生成超时",
-                "code": "TIMEOUT",
-                "attempt": attempt + 1
-            }
-            print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+            last_error = {"success": False, "error": "图片生成超时", "code": "TIMEOUT", "attempt": attempt + 1}
+            log_stderr(last_error)
         except json.JSONDecodeError as e:
-            last_error = {
-                "success": False,
-                "error": f"响应解析失败: {str(e)}",
-                "code": "PARSE_ERROR",
-                "raw_output": result.stdout[:500] if 'result' in locals() else "",
-                "attempt": attempt + 1
-            }
-            print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+            last_error = {"success": False, "error": f"响应解析失败: {str(e)}", "code": "PARSE_ERROR", "attempt": attempt + 1}
+            log_stderr(last_error)
         except Exception as e:
-            last_error = {
-                "success": False,
-                "error": str(e),
-                "code": "UNKNOWN_ERROR",
-                "attempt": attempt + 1
-            }
-            print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+            last_error = {"success": False, "error": str(e), "code": "UNKNOWN_ERROR", "attempt": attempt + 1}
+            log_stderr(last_error)
 
-    # 所有重试都失败
     return last_error if last_error else {
         "success": False,
-        "error": "图片生成失败，已重试所有次数",
+        "error": "豆包图片生成失败",
         "code": "ALL_RETRIES_FAILED"
     }
 
 def upload_to_imgbb(image_base64, retry=3, retry_delay=2):
-    """上传图片到 imgbb（带重试机制）"""
-    api_key = get_env_var("IMGBB_API_KEY")
+    """上传图片到 imgbb"""
+    api_key = get_env_var("IMGBB_API_KEY", required=True)
+    if not api_key:
+        return {"success": False, "error": "未设置 IMGBB_API_KEY", "code": "ENV_VAR_MISSING"}
 
-    import time
     last_error = None
 
     for attempt in range(retry):
         if attempt > 0:
-            print(json.dumps({
-                "status": "retrying_upload",
-                "message": f"上传重试第 {attempt}/{retry-1} 次...",
-                "delay": retry_delay
-            }, ensure_ascii=False), file=sys.stderr)
+            log_stderr({"status": "retrying_upload", "message": f"上传重试第 {attempt}/{retry-1} 次..."})
             time.sleep(retry_delay)
 
-        # 使用临时文件传递图片数据
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             f.write(image_base64)
             image_file = f.name
 
         try:
-            # 使用 -F 和 @ 从文件读取
             cmd = [
-                "curl", "-s", "--max-time", "60",
+                "curl", "-s", "--max-time", "90",
                 "-X", "POST",
                 f"{IMGBB_API_URL}?key={api_key}",
                 "-F", f"image=<{image_file}"
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             response = json.loads(result.stdout)
 
             if response.get("success"):
@@ -177,110 +263,90 @@ def upload_to_imgbb(image_base64, retry=3, retry_delay=2):
                     "code": "UPLOAD_FAILED",
                     "attempt": attempt + 1
                 }
-                print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+                log_stderr(last_error)
 
         except subprocess.TimeoutExpired:
-            last_error = {
-                "success": False,
-                "error": "上传超时",
-                "code": "TIMEOUT",
-                "attempt": attempt + 1
-            }
-            print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
-        except json.JSONDecodeError as e:
-            last_error = {
-                "success": False,
-                "error": f"响应解析失败: {str(e)}",
-                "code": "PARSE_ERROR",
-                "raw_output": result.stdout[:500] if 'result' in locals() else "",
-                "attempt": attempt + 1
-            }
-            print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+            last_error = {"success": False, "error": "上传超时", "code": "TIMEOUT", "attempt": attempt + 1}
+            log_stderr(last_error)
         except Exception as e:
-            last_error = {
-                "success": False,
-                "error": str(e),
-                "code": "UNKNOWN_ERROR",
-                "attempt": attempt + 1
-            }
-            print(json.dumps(last_error, ensure_ascii=False), file=sys.stderr)
+            last_error = {"success": False, "error": str(e), "code": "UNKNOWN_ERROR", "attempt": attempt + 1}
+            log_stderr(last_error)
         finally:
             if os.path.exists(image_file):
                 os.unlink(image_file)
 
-    # 所有重试都失败
     return last_error if last_error else {
         "success": False,
-        "error": "上传失败，已重试所有次数",
+        "error": "上传失败",
         "code": "ALL_RETRIES_FAILED"
     }
 
-def generate_and_upload(prompt, retry=3, retry_delay=3, size="1024x1024"):
-    """生成图片（豆包 API 直接返回 URL，无需上传）"""
-    # 生成图片
-    print(json.dumps({"status": "generating", "message": "正在生成图片...", "prompt": prompt[:100]}, ensure_ascii=False), file=sys.stderr)
+def generate_image(prompt, retry=3, retry_delay=3, size="1024x1024"):
+    """生成图片（优先 OpenRouter，备用豆包）"""
+    log_stderr({"status": "generating", "message": "正在生成图片...", "prompt": prompt[:100]})
 
-    gen_result = generate_image(prompt, retry=retry, retry_delay=retry_delay, size=size)
+    # 优先使用 OpenRouter
+    openrouter_key = get_env_var("OPENROUTER_API_KEY", required=False)
+    if openrouter_key:
+        log_stderr({"status": "using_openrouter", "message": "使用 OpenRouter (Gemini) 生成图片"})
+        result = generate_image_openrouter(prompt, retry=retry, retry_delay=retry_delay, size=size)
+        if result.get("success"):
+            return result
+        log_stderr({"status": "openrouter_failed", "message": "OpenRouter 失败，尝试豆包..."})
 
-    if not gen_result.get("success"):
-        print(json.dumps({"status": "generate_failed", "error": gen_result.get("error"), "prompt": prompt[:100]}, ensure_ascii=False), file=sys.stderr)
-        return gen_result
-
-    # 豆包 API 直接返回可用的图片 URL，无需上传到图床
-    print(json.dumps({"status": "completed", "message": "图片生成成功"}, ensure_ascii=False), file=sys.stderr)
+    # 备用：豆包
+    doubao_key = get_env_var("DOUBAO_API_KEY", required=False)
+    if doubao_key:
+        log_stderr({"status": "using_doubao", "message": "使用豆包 API 生成图片"})
+        return generate_image_doubao(prompt, retry=retry, retry_delay=retry_delay, size=size)
 
     return {
-        "success": True,
-        "url": gen_result["url"],
-        "display_url": gen_result["url"],
-        "prompt": prompt,
-        "generate_attempts": gen_result.get("attempts", 1),
-        "source": "doubao"
+        "success": False,
+        "error": "未设置任何图片生成 API Key (OPENROUTER_API_KEY 或 DOUBAO_API_KEY)",
+        "code": "NO_API_KEY"
     }
 
 def main():
-    parser = argparse.ArgumentParser(description="AI 图片生成工具（豆包 API）")
+    parser = argparse.ArgumentParser(description="AI 图片生成工具（支持 OpenRouter 和豆包）")
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 
-    # generate 命令 - 生成图片
+    # generate 命令
     gen_parser = subparsers.add_parser("generate", help="生成图片")
     gen_parser.add_argument("--prompt", "-p", required=True, help="图片描述提示词")
-    gen_parser.add_argument("--retry", type=int, default=3, help="失败重试次数 (默认: 3)")
-    gen_parser.add_argument("--retry-delay", type=int, default=3, help="重试延迟秒数 (默认: 3)")
-    gen_parser.add_argument("--size", default="2048x2048", help="图片尺寸 (默认: 2048x2048)")
+    gen_parser.add_argument("--retry", type=int, default=3, help="失败重试次数")
+    gen_parser.add_argument("--retry-delay", type=int, default=3, help="重试延迟秒数")
+    gen_parser.add_argument("--size", default="1024x1024", help="图片尺寸")
 
-    # cover 命令 - 生成封面图
+    # cover 命令
     cover_parser = subparsers.add_parser("cover", help="根据文章标题生成封面图")
     cover_parser.add_argument("--title", "-t", required=True, help="文章标题")
-    cover_parser.add_argument("--style", "-s", default="modern",
+    cover_parser.add_argument("--style", "-s", default="tech",
                              choices=["modern", "minimalist", "tech", "warm", "creative"],
                              help="封面风格")
-    cover_parser.add_argument("--retry", type=int, default=3, help="失败重试次数 (默认: 3)")
-    cover_parser.add_argument("--retry-delay", type=int, default=3, help="重试延迟秒数 (默认: 3)")
-    cover_parser.add_argument("--size", default="2048x2048", help="图片尺寸 (默认: 2048x2048)")
+    cover_parser.add_argument("--retry", type=int, default=3, help="失败重试次数")
+    cover_parser.add_argument("--retry-delay", type=int, default=3, help="重试延迟秒数")
+    cover_parser.add_argument("--size", default="1024x1024", help="图片尺寸")
 
     args = parser.parse_args()
 
     if args.command == "generate":
-        result = generate_and_upload(args.prompt, retry=args.retry, retry_delay=args.retry_delay, size=args.size)
+        result = generate_image(args.prompt, retry=args.retry, retry_delay=args.retry_delay, size=args.size)
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     elif args.command == "cover":
-        # 根据风格生成优化的提示词（适配中文内容）
         style_prompts = {
-            "modern": "ultra high quality, 8K resolution, professional magazine cover style, clean composition, modern aesthetic, vibrant but elegant colors, premium design, photorealistic lighting",
-            "minimalist": "ultra high quality, 8K, minimalist style, negative space, elegant simplicity, refined aesthetic, soft natural lighting, premium feel, zen atmosphere",
-            "tech": "ultra high quality, 8K, futuristic technology, cyberpunk elements, neon blue and purple gradients, digital art style, high tech atmosphere, clean composition, no text overlay",
-            "warm": "ultra high quality, 8K, warm golden hour lighting, soft gradient background, inviting atmosphere, friendly and approachable, cozy vibe, pastel tones, gentle and warm aesthetic, clean and modern",
-            "creative": "ultra high quality, 8K, artistic and creative, vibrant colors, modern illustration style, eye-catching composition, unique visual design, professional art direction, bold but tasteful"
+            "modern": "ultra high quality, professional magazine cover, clean modern aesthetic, vibrant elegant colors",
+            "minimalist": "minimalist style, elegant simplicity, soft natural lighting, zen atmosphere",
+            "tech": "futuristic technology, cyberpunk, neon blue and purple gradients, digital art, high tech atmosphere",
+            "warm": "warm golden hour lighting, soft gradients, inviting atmosphere, cozy vibe, pastel tones",
+            "creative": "artistic creative, vibrant colors, modern illustration, eye-catching composition"
         }
 
-        style_desc = style_prompts.get(args.style, style_prompts["modern"])
+        style_desc = style_prompts.get(args.style, style_prompts["tech"])
 
-        # 中文内容适配：强调无文字、高质量、适合公众号
-        prompt = f"Professional cover image for article: '{args.title}'. Style requirements: {style_desc}. Critical constraints: NO text, NO Chinese characters, NO typography in the image. Image must be suitable for WeChat Official Account cover. Composition: clean, uncluttered, visually striking at small size. Quality: photorealistic or premium illustration, sharp details, professional lighting. Colors: vibrant but not oversaturated, modern aesthetic. Format: horizontal 16:9 aspect ratio."
+        prompt = f"Professional cover image for tech news article. Style: {style_desc}. NO text, NO letters, NO typography. Clean composition, visually striking, suitable for social media cover. High quality, sharp details."
 
-        result = generate_and_upload(prompt, retry=args.retry, retry_delay=args.retry_delay, size=args.size)
+        result = generate_image(prompt, retry=args.retry, retry_delay=args.retry_delay, size=args.size)
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     else:
