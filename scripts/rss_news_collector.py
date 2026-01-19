@@ -22,31 +22,36 @@ ssl_context = ssl._create_unverified_context()
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
-# 检查 API Key
-if not DOUBAO_API_KEY:
-    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
-    print("请运行: export DOUBAO_API_KEY='your-api-key'")
+# 检查 API Key - 优先使用 OpenRouter（GitHub Actions 更稳定），备用豆包
+if not OPENROUTER_API_KEY and not DOUBAO_API_KEY:
+    print("错误: 未设置 OPENROUTER_API_KEY 或 DOUBAO_API_KEY 环境变量")
+    print("请运行: export OPENROUTER_API_KEY='your-api-key'")
+    print("或者: export DOUBAO_API_KEY='your-api-key'")
     sys.exit(1)
 
-# RSS 源配置（所有源统一收集）
+# 确定使用哪个 API
+USE_OPENROUTER = bool(OPENROUTER_API_KEY)
+
+# RSS 源配置（优化后：优先使用从 GitHub Actions 美国服务器能稳定访问的源）
 ALL_RSS_SOURCES = [
-    {"name": "量子位", "url": "https://www.qbitai.com/feed", "limit": 8},
-    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 8},
-    {"name": "36氪", "url": "https://36kr.com/feed", "limit": 8},
+    # 国内源（从美国访问较稳定的）
+    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 10},
+    {"name": "36氪", "url": "https://36kr.com/feed", "limit": 10},
     {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "limit": 8},
-    {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 5},
-    {"name": "爱范儿", "url": "https://www.ifanr.com/feed", "limit": 5},
-    {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "limit": 5},
-    {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "limit": 5},
-    {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "limit": 5},
-    {"name": "The Verge AI", "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "limit": 5},
-    {"name": "华尔街见闻", "url": "https://dedicated.wallstreetcn.com/rss.xml", "limit": 10},
-    {"name": "Bloomberg Tech", "url": "https://feeds.bloomberg.com/markets/news.rss", "limit": 8},
+    {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 8},
+    # 国际源（从美国访问稳定）
+    {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "limit": 8},
+    {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "limit": 8},
+    {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "limit": 8},
+    {"name": "Wired", "url": "https://www.wired.com/feed/rss", "limit": 5},
+    {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "limit": 5},
+    {"name": "Reuters Tech", "url": "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best", "limit": 5},
 ]
 
 # 目标分类
@@ -241,7 +246,7 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
 2. 每个类别选择最重要的 5 条
 3. 输出纯 JSON 格式"""
 
-    result = call_doubao_api(prompt, max_tokens=2000)
+    result = call_llm_api(prompt, max_tokens=2000)
     if not result:
         log("AI 分类失败")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
@@ -297,8 +302,54 @@ def get_traditional_lunar_date(dt: datetime) -> str:
 
     return f'{gz_year}{lunar_month}{lunar_day}'
 
+def call_llm_api(prompt: str, max_tokens: int = 4000) -> str:
+    """调用 LLM API（优先 OpenRouter，备用豆包）"""
+
+    if USE_OPENROUTER:
+        return call_openrouter_api(prompt, max_tokens)
+    else:
+        return call_doubao_api(prompt, max_tokens)
+
+def call_openrouter_api(prompt: str, max_tokens: int = 4000) -> str:
+    """调用 OpenRouter API（从 GitHub Actions 稳定访问）"""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    payload = {
+        "model": "openai/gpt-4o-mini",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.7
+    }
+
+    try:
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                'Authorization': f"Bearer {OPENROUTER_API_KEY}",
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://github.com/lairulan/daily-tech-news',
+                'X-Title': 'Daily Tech News'
+            }
+        )
+
+        with urllib.request.urlopen(req, timeout=120, context=ssl_context) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result["choices"][0]["message"]["content"]
+
+    except Exception as e:
+        log(f"OpenRouter API 调用失败: {e}")
+        # 如果 OpenRouter 失败且有豆包 key，尝试豆包
+        if DOUBAO_API_KEY:
+            log("尝试使用豆包 API 作为备用...")
+            return call_doubao_api(prompt, max_tokens)
+        return None
+
 def call_doubao_api(prompt: str, max_tokens: int = 4000) -> str:
-    """调用豆包 API"""
+    """调用豆包 API（备用）"""
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
     payload = {
@@ -395,7 +446,7 @@ def format_news_to_html(categorized_news: Dict[str, List[Dict]], yesterday: str)
 
 要求：使用上述分类后的真实新闻，每类5条，1-2句话概括，生成励志微语，只输出HTML。注意：新闻内容开头不要标注来源媒体。"""
 
-    return call_doubao_api(prompt, max_tokens=3000)
+    return call_llm_api(prompt, max_tokens=3000)
 
 def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], date_str: str):
     """保存原始新闻数据"""

@@ -16,6 +16,7 @@ from zhdate import ZhDate
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 APPID = "wx5c5f1c55d02d1354"  # 三更
 
 # 检查必需的环境变量
@@ -24,10 +25,14 @@ if not WECHAT_API_KEY:
     print("请运行: export WECHAT_API_KEY='your-api-key'")
     sys.exit(1)
 
-if not DOUBAO_API_KEY:
-    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
-    print("请运行: export DOUBAO_API_KEY='your-api-key'")
+if not OPENROUTER_API_KEY and not DOUBAO_API_KEY:
+    print("错误: 未设置 OPENROUTER_API_KEY 或 DOUBAO_API_KEY 环境变量")
+    print("请运行: export OPENROUTER_API_KEY='your-api-key'")
+    print("或者: export DOUBAO_API_KEY='your-api-key'")
     sys.exit(1)
+
+# 确定使用哪个 API（优先 OpenRouter）
+USE_OPENROUTER = bool(OPENROUTER_API_KEY)
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -81,8 +86,48 @@ def extract_text_from_html(html_content):
     text = text.replace('&nbsp;', ' ').replace('&amp;', '&')
     return text
 
+def call_llm_api(prompt, max_tokens=2000):
+    """调用 LLM API（优先 OpenRouter，备用豆包）"""
+    if USE_OPENROUTER:
+        return call_openrouter_api(prompt, max_tokens)
+    else:
+        return call_doubao_api(prompt, max_tokens)
+
+def call_openrouter_api(prompt, max_tokens=2000):
+    """调用 OpenRouter API（从 GitHub Actions 稳定访问）"""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/lairulan/daily-tech-news",
+        "X-Title": "Daily Tech News"
+    }
+
+    payload = {
+        "model": "openai/gpt-4o-mini",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.7
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        log(f"OpenRouter API 调用失败: {e}")
+        # 如果 OpenRouter 失败且有豆包 key，尝试豆包
+        if DOUBAO_API_KEY:
+            log("尝试使用豆包 API 作为备用...")
+            return call_doubao_api(prompt, max_tokens)
+        return None
+
 def call_doubao_api(prompt, max_tokens=2000):
-    """调用豆包 API 生成内容"""
+    """调用豆包 API 生成内容（备用）"""
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
     headers = {
@@ -272,7 +317,7 @@ def generate_news_html(yesterday_str, today_lunar, today_weekday, today_date):
 4. 微语要励志、有深度
 5. 只输出HTML代码，不要其他文字"""
 
-    content = call_doubao_api(prompt, max_tokens=3000)
+    content = call_llm_api(prompt, max_tokens=3000)
 
     # 清理markdown代码块标记
     if content:
@@ -356,7 +401,7 @@ def publish_to_wechat(title, content, cover_url):
 
 新闻内容：
 {plain_text[:800]}"""
-    summary = call_doubao_api(summary_prompt, max_tokens=100)
+    summary = call_llm_api(summary_prompt, max_tokens=100)
     if summary:
         # 清理可能的多余内容
         summary = summary.strip().strip('"\'')

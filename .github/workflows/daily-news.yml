@@ -11,6 +11,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # 添加超时限制
+    timeout-minutes: 15
 
     steps:
       - name: 检出代码
@@ -30,13 +32,42 @@ jobs:
         env:
           WECHAT_API_KEY: ${{ secrets.WECHAT_API_KEY }}
           DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -x  # 显示执行的命令
           cd scripts
-          python3 auto_daily_news.py 2>&1 || {
-            echo "::error::脚本执行失败"
+
+          # 显示使用的 API
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "使用 OpenRouter API (GPT-4o-mini)"
+          elif [ -n "$DOUBAO_API_KEY" ]; then
+            echo "使用豆包 API"
+          else
+            echo "错误：未设置 API Key"
             exit 1
-          }
+          fi
+
+          # 运行脚本，带重试机制
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "尝试 $((RETRY_COUNT + 1))/$MAX_RETRIES..."
+
+            if python3 auto_daily_news.py 2>&1; then
+              echo "✅ 新闻发布成功！"
+              exit 0
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️ 失败，等待 30 秒后重试..."
+                sleep 30
+              fi
+            fi
+          done
+
+          echo "::error::所有重试都失败了"
+          exit 1
 
       - name: 记录日志
         if: always()
