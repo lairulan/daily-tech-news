@@ -3,9 +3,13 @@ name: 每日科技新闻
 on:
   # 定时触发已迁移到 Cloudflare Workers，确保精确执行
   # 原 schedule: cron: '30 0 * * *' (每天 8:30 北京时间)
-  # 现在通过 Cloudflare Workers Cron Triggers 调用 workflow_dispatch
+  # 现在通过 Cloudflare Workers Cron Triggers 调用 repository_dispatch
 
-  # 支持手动触发和外部调用
+  # Cloudflare Workers 触发
+  repository_dispatch:
+    types: [daily-tech-news]
+
+  # 支持手动触发
   workflow_dispatch:
 
 jobs:

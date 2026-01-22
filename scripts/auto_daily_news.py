@@ -17,7 +17,7 @@ from zhdate import ZhDate
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-APPID = "wx5c5f1c55d02d1354"  # 三更
+APPID = "wx5c5f1c55d02d1354"  # 三更AI
 
 # 检查必需的环境变量
 if not WECHAT_API_KEY:

@@ -76,7 +76,7 @@ Create or select an inspiring quote related to technology, innovation, or life w
 Generate cover image using Doubao SeeDream API:
 
 ```bash
-DOUBAO_API_KEY="your-doubao-api-key" python3 ~/.claude/skills/wechat-publish/scripts/generate_image.py cover \
+python3 ~/.claude/skills/daily-tech-news/scripts/generate_image.py cover \
   --title "X月X日AI科技财经日报" \
   --style "tech" \
   --retry 3 \
@@ -90,22 +90,24 @@ DOUBAO_API_KEY="your-doubao-api-key" python3 ~/.claude/skills/wechat-publish/scr
 
 1. Format the complete news digest as HTML with styled sections
 2. **Important**: Do NOT repeat title in content body
-3. Use **wechat-publish** skill with `news` type:
+3. Use the **auto_daily_news.py** script for automatic publishing:
 
 ```bash
 # Set environment variables
 export WECHAT_API_KEY="your-wechat-api-key"
 export DOUBAO_API_KEY="your-doubao-api-key"
+# Or use OpenRouter (preferred for GitHub Actions)
+export OPENROUTER_API_KEY="your-openrouter-api-key"
 
-# Publish with cover image and styled HTML content
-python3 ~/.claude/skills/wechat-publish/scripts/publish.py publish \
-  --appid "wx5c5f1c55d02d1354" \
-  --title "X月X日AI科技财经日报" \
-  --content-file "/path/to/styled_news.md" \
-  --summary "..." \
-  --cover "COVER_IMAGE_URL" \
-  --type "news"
+# Run the automatic daily news script
+python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py
 ```
+
+**已配置的公众号：**
+| 项目 | 值 |
+|------|-----|
+| 公众号 | 三更AI |
+| AppID | `wx5c5f1c55d02d1354` |
 
 **Important**:
 - Content must use HTML format with inline styles
@@ -144,7 +146,7 @@ python3 ~/.claude/skills/wechat-publish/scripts/publish.py publish \
 ## Requirements
 
 - **WebSearch**: Required for news gathering
-- **wechat-publish skill**: Required for automatic publishing
+- **Environment Variables**: `WECHAT_API_KEY`, `DOUBAO_API_KEY` or `OPENROUTER_API_KEY`
 - **Date accuracy**: Always verify the correct previous day's date
 - **News quality**: Prioritize authoritative sources and verified information
 
@@ -170,7 +172,7 @@ If WebSearch returns limited results:
 - Add year/month to search queries
 - Search for broader topics then filter
 
-If wechat-publish fails:
-- Check account credentials
+If publishing fails:
+- Check `WECHAT_API_KEY` environment variable
 - Verify content length limits
-- Ensure proper formatting
+- Ensure proper HTML formatting
