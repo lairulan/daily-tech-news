@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-基于 RSS 订阅的新闻收集脚本
+基于 RSS 订阅的新闻收集脚本 V3.0
 使用 Python 内置库解析 RSS，无需额外依赖
+
+新增功能：
+- 请求速率限制（0.5秒间隔）
+- 使用 certifi 正确验证 SSL 证书
+- 共享工具函数
 """
 
 import os
@@ -14,11 +19,46 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import List, Dict
 import re
+import time
 from email.utils import parsedate_to_datetime
-from zhdate import ZhDate
 
-# 创建 SSL 上下文（处理证书问题）
-ssl_context = ssl._create_unverified_context()
+# 尝试导入 certifi 用于正确的 SSL 证书验证
+try:
+    import certifi
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    # 如果 certifi 不可用，使用不验证证书的上下文（备用）
+    ssl_context = ssl._create_unverified_context()
+
+# 导入共享工具函数
+try:
+    from utils import get_traditional_lunar_date, get_weekday_name
+except ImportError:
+    # 如果导入失败，使用本地定义
+    from zhdate import ZhDate
+
+    def get_traditional_lunar_date(dt: datetime) -> str:
+        """获取传统农历日期格式：乙巳年冬月廿七"""
+        zh_date = ZhDate.from_datetime(dt)
+        chinese_full = zh_date.chinese()
+        parts = chinese_full.split()
+        gz_year = parts[1] if len(parts) >= 2 else ''
+        months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
+                  '七月', '八月', '九月', '十月', '冬月', '腊月']
+        lunar_month = months[zh_date.lunar_month]
+        days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+                '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+                '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
+        lunar_day = days[zh_date.lunar_day]
+        return f'{gz_year}{lunar_month}{lunar_day}'
+
+    def get_weekday_name(dt: datetime) -> str:
+        """获取中文星期名称"""
+        weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        return weekday_names[dt.weekday()]
+
+# 速率限制配置
+REQUEST_DELAY = 0.5  # 请求间隔（秒）
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
@@ -198,6 +238,9 @@ def collect_all_news() -> List[Dict]:
         all_items.extend(items)
         log(f"    获取 {len(items)} 条")
 
+        # 添加速率限制，避免请求过快
+        time.sleep(REQUEST_DELAY)
+
     # 去重（基于标题）
     seen_titles = set()
     unique_items = []
@@ -279,28 +322,6 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
         log(f"解析 AI 分类结果失败: {e}")
         log(f"原始结果: {result[:500]}")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
-
-def get_traditional_lunar_date(dt: datetime) -> str:
-    """获取传统农历日期格式：乙巳年冬月廿七"""
-    zh_date = ZhDate.from_datetime(dt)
-
-    # 获取天干地支年
-    chinese_full = zh_date.chinese()
-    parts = chinese_full.split()
-    gz_year = parts[1] if len(parts) >= 2 else ''
-
-    # 农历月份（传统写法）
-    months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
-              '七月', '八月', '九月', '十月', '冬月', '腊月']
-    lunar_month = months[zh_date.lunar_month]
-
-    # 农历日期（传统写法）
-    days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
-            '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
-            '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
-    lunar_day = days[zh_date.lunar_day]
-
-    return f'{gz_year}{lunar_month}{lunar_day}'
 
 def call_llm_api(prompt: str, max_tokens: int = 4000) -> str:
     """调用 LLM API（优先 OpenRouter，备用豆包）"""

@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-每日科技新闻自动收集和发布脚本
+每日科技新闻自动收集和发布脚本 V3.0
 每天 8:00 自动运行，收集前一天的 AI/科技/财经新闻并发布到公众号
+
+新增功能：
+- 环境预检查 (--check-env)
+- 试运行模式 (--dry-run)
+- 环境变量配置 AppID (WECHAT_APP_ID)
+- 使用 certifi 正确验证 SSL 证书
 """
 
 import os
@@ -9,7 +15,16 @@ import sys
 import json
 import re
 import subprocess
+import argparse
 from datetime import datetime, timedelta
+
+# 尝试导入 certifi 用于正确的 SSL 证书验证
+try:
+    import certifi
+    SSL_VERIFY = certifi.where()
+except ImportError:
+    SSL_VERIFY = True  # 使用系统证书
+
 import requests
 from zhdate import ZhDate
 
@@ -17,19 +32,8 @@ from zhdate import ZhDate
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-APPID = "wx5c5f1c55d02d1354"  # 三更AI
-
-# 检查必需的环境变量
-if not WECHAT_API_KEY:
-    print("错误: 未设置 WECHAT_API_KEY 环境变量")
-    print("请运行: export WECHAT_API_KEY='your-api-key'")
-    sys.exit(1)
-
-if not OPENROUTER_API_KEY and not DOUBAO_API_KEY:
-    print("错误: 未设置 OPENROUTER_API_KEY 或 DOUBAO_API_KEY 环境变量")
-    print("请运行: export OPENROUTER_API_KEY='your-api-key'")
-    print("或者: export DOUBAO_API_KEY='your-api-key'")
-    sys.exit(1)
+# 从环境变量读取 AppID，默认使用三更AI
+APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")
 
 # 确定使用哪个 API（优先 OpenRouter）
 USE_OPENROUTER = bool(OPENROUTER_API_KEY)
@@ -40,6 +44,129 @@ WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "daily-news.log")
 
 API_BASE = "https://wx.limyai.com/api/openapi"
+
+
+def check_environment(verbose: bool = True) -> bool:
+    """检查运行环境依赖
+
+    Args:
+        verbose: 是否打印详细信息
+
+    Returns:
+        True 如果所有必需依赖都存在，否则 False
+    """
+    errors = []
+    warnings = []
+
+    # 检查环境变量
+    if not WECHAT_API_KEY:
+        errors.append("未设置 WECHAT_API_KEY 环境变量")
+
+    if not OPENROUTER_API_KEY and not DOUBAO_API_KEY:
+        errors.append("未设置 OPENROUTER_API_KEY 或 DOUBAO_API_KEY 环境变量")
+
+    if not os.environ.get("WECHAT_APP_ID"):
+        warnings.append(f"未设置 WECHAT_APP_ID，将使用默认公众号 (AppID: {APPID})")
+
+    # 检查脚本文件
+    required_scripts = [
+        os.path.join(SCRIPT_DIR, "generate_image.py"),
+        os.path.join(SCRIPT_DIR, "rss_news_collector.py"),
+    ]
+
+    for script in required_scripts:
+        if not os.path.exists(script):
+            errors.append(f"脚本文件不存在: {script}")
+
+    # 检查 Python 依赖
+    try:
+        import zhdate
+    except ImportError:
+        errors.append("未安装 zhdate 包 (pip install zhdate)")
+
+    try:
+        import certifi
+    except ImportError:
+        warnings.append("未安装 certifi 包，将使用系统证书 (pip install certifi)")
+
+    if verbose:
+        print("=" * 50)
+        print("环境依赖检查")
+        print("=" * 50)
+
+        print("\n📋 环境变量:")
+        print(f"  {'✅' if WECHAT_API_KEY else '❌'} WECHAT_API_KEY")
+        print(f"  {'✅' if os.environ.get('WECHAT_APP_ID') else '⚠️'} WECHAT_APP_ID")
+        print(f"  {'✅' if OPENROUTER_API_KEY else '❌'} OPENROUTER_API_KEY")
+        print(f"  {'✅' if DOUBAO_API_KEY else '❌'} DOUBAO_API_KEY")
+
+        print("\n📁 脚本文件:")
+        for script in required_scripts:
+            exists = os.path.exists(script)
+            print(f"  {'✅' if exists else '❌'} {os.path.basename(script)}")
+
+        if errors:
+            print("\n❌ 错误:")
+            for error in errors:
+                print(f"  • {error}")
+
+        if warnings:
+            print("\n⚠️ 警告:")
+            for warning in warnings:
+                print(f"  • {warning}")
+
+        print("\n" + "=" * 50)
+        if not errors:
+            print("✅ 环境检查通过")
+        else:
+            print("❌ 环境检查失败")
+        print("=" * 50)
+
+    return len(errors) == 0
+
+
+def validate_news_content(html_content: str) -> dict:
+    """验证新闻内容质量
+
+    Args:
+        html_content: HTML 格式的新闻内容
+
+    Returns:
+        验证结果字典
+    """
+    errors = []
+    warnings = []
+
+    # 检查内容长度
+    if len(html_content) < 500:
+        errors.append("内容过短（少于500字符）")
+
+    # 检查是否包含三个分类
+    categories = ["AI 领域", "科技动态", "财经要闻"]
+    for cat in categories:
+        if cat not in html_content:
+            errors.append(f"缺少分类: {cat}")
+
+    # 统计新闻条数（通过编号检测）
+    news_count = 0
+    for i in range(1, 6):
+        pattern = rf'0{i}</span>'
+        if re.search(pattern, html_content):
+            news_count += 1
+
+    if news_count < 5:
+        warnings.append(f"每个分类可能不足5条新闻（检测到编号 01-0{news_count}）")
+
+    # 检查微语
+    if "微语" not in html_content and "微 语" not in html_content:
+        warnings.append("可能缺少微语部分")
+
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
 
 def get_traditional_lunar_date(dt):
     """获取传统农历日期格式：乙巳年冬月廿七"""
@@ -432,10 +559,35 @@ def publish_to_wechat(title, content, cover_url):
 
 def main():
     """主函数"""
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="每日科技新闻自动收集和发布脚本 V3.0")
+    parser.add_argument("--check-env", action="store_true", help="仅检查环境依赖")
+    parser.add_argument("--dry-run", action="store_true", help="试运行（不发布）")
+    parser.add_argument("--appid", type=str, help="指定公众号 AppID")
+    args = parser.parse_args()
+
+    # 仅检查环境
+    if args.check_env:
+        success = check_environment(verbose=True)
+        sys.exit(0 if success else 1)
+
+    # 检查环境依赖（简略模式）
+    if not check_environment(verbose=False):
+        log("环境检查失败，请运行 --check-env 查看详情")
+        sys.exit(1)
+
+    # 使用命令行指定的 AppID
+    global APPID
+    if args.appid:
+        APPID = args.appid
+        log(f"使用指定的 AppID: {APPID}")
+
     log("=" * 50)
-    log("开始执行每日新闻收集任务")
+    log("开始执行每日新闻收集任务 V3.0")
     log(f"工作目录: {WORK_DIR}")
     log(f"脚本目录: {SCRIPT_DIR}")
+    if args.dry_run:
+        log("⚠️ 试运行模式：将不会发布到公众号")
 
     # 计算日期
     today = datetime.now()
@@ -471,12 +623,34 @@ def main():
 
     log(f"生成的内容长度: {len(content)} 字符")
 
+    # 质量检查
+    log("正在进行质量检查...")
+    quality_result = validate_news_content(content)
+    if quality_result["errors"]:
+        for error in quality_result["errors"]:
+            log(f"❌ 质量错误: {error}")
+    if quality_result["warnings"]:
+        for warning in quality_result["warnings"]:
+            log(f"⚠️ 质量警告: {warning}")
+    if quality_result["valid"]:
+        log("✅ 质量检查通过")
+
     # 2. 生成封面图
     log("正在生成封面图...")
     cover_url = generate_cover_image(f"{today.month}月{today.day}日AI科技财经日报")
     if not cover_url:
         log("封面图生成失败，将不使用封面图发布")
         cover_url = ""
+
+    # 试运行模式：不发布
+    if args.dry_run:
+        log("=" * 50)
+        log("✅ 试运行完成")
+        log(f"标题: {today.month}月{today.day}日AI科技财经日报")
+        log(f"内容长度: {len(content)} 字符")
+        log(f"封面图: {cover_url or '无'}")
+        log("=" * 50)
+        sys.exit(0)
 
     # 3. 发布到公众号
     log("正在发布到公众号...")
