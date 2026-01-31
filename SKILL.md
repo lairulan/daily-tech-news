@@ -1,12 +1,12 @@
 ---
 name: daily-tech-news
 description: 每日AI科技财经资讯自动策展与发布。热搜驱动选题，权威媒体采集，精美HTML排版，一键发布微信公众号。
-version: 3.0.0
+version: 3.1.0
 author: rulanlai
 tags: [news, automation, wechat, rss, ai]
 ---
 
-# Daily Tech News Publisher V3.0
+# Daily Tech News Publisher V3.1
 
 每日 AI/科技/财经资讯自动策展与发布系统。
 
@@ -474,6 +474,12 @@ jobs:
 ---
 
 ## 版本历史
+
+### v3.1.0 (2026-01-31)
+- ✨ **内容质量优化**：新闻内容客观化，纯事实陈述
+- 🎯 **分类优化**：AI与科技领域严格区分，避免交叉
+- 💬 **微语风格保持**：恢复励志语录风格
+- 🧹 **代码清理**：删除测试生成的临时文件
 
 ### v3.0.0 (2026-01-28)
 - 🔥 **新增热搜驱动选题系统**：多平台热度分析，智能权重分配
