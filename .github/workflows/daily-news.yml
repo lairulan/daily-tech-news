@@ -42,6 +42,7 @@ jobs:
           cd scripts
 
           # 显示使用的 API
+          if [ -n "$OPENROUTER_API_KEY" ]; then
             echo "使用 OpenRouter API (GPT-4o-mini)"
           elif [ -n "$DOUBAO_API_KEY" ]; then
             echo "使用豆包 API"
