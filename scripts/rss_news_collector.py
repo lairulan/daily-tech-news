@@ -384,6 +384,9 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) 
 4. 使用现代化的卡片式设计
 5. 适配移动端阅读
 6. 不要添加任何代码块标记
+7. **重要：不要使用列表标签（ul, ol, li），全部使用 div 包裹**
+8. **重要：不要使用 border-left、左边框或任何竖条样式**
+9. **保持简洁清爽的卡片布局，每条新闻用 div.news-item 包裹即可**
 
 直接输出 HTML 内容，不要任何其他说明文字。"""
 
