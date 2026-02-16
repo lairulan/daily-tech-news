@@ -21,6 +21,7 @@ from typing import List, Dict
 import re
 import time
 from email.utils import parsedate_to_datetime
+import requests
 
 # 尝试导入 certifi 用于正确的 SSL 证书验证
 try:
@@ -326,13 +327,86 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
         log(f"原始结果: {result[:500]}")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
 
+def call_llm_api(prompt, max_tokens=2000):
     """调用 LLM API（仅使用豆包）"""
     return call_doubao_api(prompt, max_tokens)
 
+def call_doubao_api(prompt, max_tokens=2000):
+    """调用豆包 API 生成内容"""
+    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {DOUBAO_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "doubao-seed-1-6-lite-251015",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.7
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        log(f"豆包 API 调用失败: {e}")
+        return None
+
+def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) -> str:
+    """将分类后的新闻格式化为 HTML"""
+    # 构建 prompt让 AI 生成新闻 HTML
+    news_summary = ""
+    for category, items in categorized.items():
+        news_summary += f"\n## {category}\n"
+        for i, item in enumerate(items, 1):
+            news_summary += f"{i}. 【{item['rss_source']}】{item['title']}\n"
+            if item.get('summary'):
+                news_summary += f"   {item['summary'][:100]}...\n"
+            news_summary += f"   链接: {item.get('link', '无')}\n\n"
+
+    prompt = f"""请将以下新闻内容转换为精美的 HTML 格式，适合发布到微信公众号。
+
+日期: {yesterday_str}
+
+新闻内容:
+{news_summary}
+
+要求:
+1. 使用浅色渐变背景的日期卡片（顶部）
+2. 三个分类区块："AI 领域"、"科技动态"、"财经要闻"
+3. 每条新闻包含标题、简介、来源标签
+4. 使用现代化的卡片式设计
+5. 适配移动端阅读
+6. 不要添加任何代码块标记
+
+直接输出 HTML 内容，不要任何其他说明文字。"""
+
+    html_content = call_llm_api(prompt, max_tokens=3000)
+    return html_content if html_content else ""
 
 def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], date_str: str):
-    """调用 LLM API（仅使用豆包）"""
-    return call_doubao_api(prompt, max_tokens)
+    """保存原始新闻数据为 JSON"""
+    raw_data = {
+        "date": date_str,
+        "total_news": len(news_items),
+        "categorized_count": {cat: len(items) for cat, items in categorized.items()},
+        "all_news": news_items,
+        "categorized_news": categorized
+    }
+
+    raw_file = os.path.join(WORK_DIR, f"raw_news_{date_str}.json")
+    try:
+        with open(raw_file, 'w', encoding='utf-8') as f:
+            json.dump(raw_data, f, ensure_ascii=False, indent=2)
+        log(f"原始新闻已保存: {raw_file}")
+    except Exception as e:
+        log(f"保存原始新闻失败: {e}")
 
 def main():
     """主函数"""
