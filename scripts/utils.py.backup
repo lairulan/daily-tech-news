@@ -21,6 +21,7 @@ except ImportError:
 # 备用：不验证证书的上下文（仅在必要时使用）
 SSL_CONTEXT_UNVERIFIED = ssl._create_unverified_context()
 
+
 def get_traditional_lunar_date(dt: datetime) -> str:
     """获取传统农历日期格式：乙巳年冬月廿七
 
@@ -55,6 +56,7 @@ def get_traditional_lunar_date(dt: datetime) -> str:
 
     return f'{gz_year}{lunar_month}{lunar_day}'
 
+
 def get_weekday_name(dt: datetime) -> str:
     """获取中文星期名称
 
@@ -66,6 +68,7 @@ def get_weekday_name(dt: datetime) -> str:
     """
     weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     return weekday_names[dt.weekday()]
+
 
 def rate_limited_request(
     func: Callable[..., Any],
@@ -88,6 +91,7 @@ def rate_limited_request(
     time.sleep(delay)
     return result
 
+
 def check_environment() -> dict:
     """检查运行环境依赖
 
@@ -107,16 +111,21 @@ def check_environment() -> dict:
     # 检查环境变量
     wechat_api_key = os.environ.get("WECHAT_API_KEY")
     wechat_app_id = os.environ.get("WECHAT_APP_ID")
+    openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
     doubao_api_key = os.environ.get("DOUBAO_API_KEY")
 
     details["env_vars"] = {
         "WECHAT_API_KEY": bool(wechat_api_key),
         "WECHAT_APP_ID": bool(wechat_app_id),
+        "OPENROUTER_API_KEY": bool(openrouter_api_key),
         "DOUBAO_API_KEY": bool(doubao_api_key),
     }
 
     if not wechat_api_key:
         errors.append("未设置 WECHAT_API_KEY 环境变量")
+
+    if not openrouter_api_key and not doubao_api_key:
+        errors.append("未设置 OPENROUTER_API_KEY 或 DOUBAO_API_KEY 环境变量")
 
     if not wechat_app_id:
         warnings.append("未设置 WECHAT_APP_ID，将使用默认公众号")
@@ -168,6 +177,7 @@ def check_environment() -> dict:
         "details": details,
     }
 
+
 def print_environment_check_result(result: dict) -> None:
     """打印环境检查结果
 
@@ -216,6 +226,7 @@ def print_environment_check_result(result: dict) -> None:
         print("❌ 环境检查失败，请修复上述错误")
     print("=" * 50)
 
+
 def validate_news_content(html_content: str) -> dict:
     """验证新闻内容质量
 
@@ -263,6 +274,7 @@ def validate_news_content(html_content: str) -> dict:
         "errors": errors,
         "warnings": warnings,
     }
+
 
 if __name__ == "__main__":
     # 运行环境检查

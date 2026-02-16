@@ -31,10 +31,12 @@ from zhdate import ZhDate
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 # 从环境变量读取 AppID，默认使用三更AI
 APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")
 
 # 确定使用哪个 API（优先 OpenRouter）
+USE_OPENROUTER = bool(OPENROUTER_API_KEY)
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +44,7 @@ WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "daily-news.log")
 
 API_BASE = "https://wx.limyai.com/api/openapi"
+
 
 def check_environment(verbose: bool = True) -> bool:
     """检查运行环境依赖
@@ -59,8 +62,8 @@ def check_environment(verbose: bool = True) -> bool:
     if not WECHAT_API_KEY:
         errors.append("未设置 WECHAT_API_KEY 环境变量")
 
-    if not DOUBAO_API_KEY:
-        errors.append("未设置 DOUBAO_API_KEY 环境变量")
+    if not OPENROUTER_API_KEY and not DOUBAO_API_KEY:
+        errors.append("未设置 OPENROUTER_API_KEY 或 DOUBAO_API_KEY 环境变量")
 
     if not os.environ.get("WECHAT_APP_ID"):
         warnings.append(f"未设置 WECHAT_APP_ID，将使用默认公众号 (AppID: {APPID})")
@@ -94,6 +97,7 @@ def check_environment(verbose: bool = True) -> bool:
         print("\n📋 环境变量:")
         print(f"  {'✅' if WECHAT_API_KEY else '❌'} WECHAT_API_KEY")
         print(f"  {'✅' if os.environ.get('WECHAT_APP_ID') else '⚠️'} WECHAT_APP_ID")
+        print(f"  {'✅' if OPENROUTER_API_KEY else '❌'} OPENROUTER_API_KEY")
         print(f"  {'✅' if DOUBAO_API_KEY else '❌'} DOUBAO_API_KEY")
 
         print("\n📁 脚本文件:")
@@ -119,6 +123,7 @@ def check_environment(verbose: bool = True) -> bool:
         print("=" * 50)
 
     return len(errors) == 0
+
 
 def validate_news_content(html_content: str) -> dict:
     """验证新闻内容质量
@@ -162,32 +167,28 @@ def validate_news_content(html_content: str) -> dict:
         "warnings": warnings,
     }
 
+
 def get_traditional_lunar_date(dt):
     """获取传统农历日期格式：乙巳年冬月廿七"""
-    try:
-        zh_date = ZhDate.from_datetime(dt)
+    zh_date = ZhDate.from_datetime(dt)
 
-        # 获取天干地支年
-        chinese_full = zh_date.chinese()
-        parts = chinese_full.split()
-        gz_year = parts[1] if len(parts) >= 2 else ''
+    # 获取天干地支年
+    chinese_full = zh_date.chinese()
+    parts = chinese_full.split()
+    gz_year = parts[1] if len(parts) >= 2 else ''
 
-        # 农历月份（传统写法）
-        months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
-                  '七月', '八月', '九月', '十月', '冬月', '腊月']
-        lunar_month = months[zh_date.lunar_month]
+    # 农历月份（传统写法）
+    months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
+              '七月', '八月', '九月', '十月', '冬月', '腊月']
+    lunar_month = months[zh_date.lunar_month]
 
-        # 农历日期（传统写法）
-        days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
-                '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
-                '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
-        lunar_day = days[zh_date.lunar_day]
+    # 农历日期（传统写法）
+    days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+            '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+            '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
+    lunar_day = days[zh_date.lunar_day]
 
-        return f'{gz_year}{lunar_month}{lunar_day}'
-    except (TypeError, ValueError, IndexError) as e:
-        # zhdate 库可能无法处理某些日期（如2026年2月），返回空字符串
-        print(f"警告：农历日期转换失败 ({dt}): {e}")
-        return ""
+    return f'{gz_year}{lunar_month}{lunar_day}'
 
 def log(message):
     """记录日志"""
@@ -213,8 +214,44 @@ def extract_text_from_html(html_content):
     return text
 
 def call_llm_api(prompt, max_tokens=2000):
-    """调用 LLM API（仅使用豆包）"""
-    return call_doubao_api(prompt, max_tokens)
+    """调用 LLM API（优先 OpenRouter，备用豆包）"""
+    if USE_OPENROUTER:
+        return call_openrouter_api(prompt, max_tokens)
+    else:
+        return call_doubao_api(prompt, max_tokens)
+
+def call_openrouter_api(prompt, max_tokens=2000):
+    """调用 OpenRouter API（从 GitHub Actions 稳定访问）"""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/lairulan/daily-tech-news",
+        "X-Title": "Daily Tech News"
+    }
+
+    payload = {
+        "model": "openai/gpt-4o-mini",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.7
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        log(f"OpenRouter API 调用失败: {e}")
+        # 如果 OpenRouter 失败且有豆包 key，尝试豆包
+        if DOUBAO_API_KEY:
+            log("尝试使用豆包 API 作为备用...")
+            return call_doubao_api(prompt, max_tokens)
+        return None
 
 def call_doubao_api(prompt, max_tokens=2000):
     """调用豆包 API 生成内容（备用）"""

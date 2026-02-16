@@ -36,12 +36,14 @@ jobs:
         env:
           WECHAT_API_KEY: ${{ secrets.WECHAT_API_KEY }}
           DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
         run: |
           set -x  # 显示执行的命令
           cd scripts
 
           # 显示使用的 API
+          if [ -n "$OPENROUTER_API_KEY" ]; then
             echo "使用 OpenRouter API (GPT-4o-mini)"
           elif [ -n "$DOUBAO_API_KEY" ]; then
             echo "使用豆包 API"

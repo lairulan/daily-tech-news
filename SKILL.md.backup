@@ -17,6 +17,7 @@ tags: [news, automation, wechat, rss, ai]
 - 🎨 **精美视觉设计** - 渐变色卡片 + AI封面图
 - 📋 **质量检查清单** - 发布前自动验证
 - 🛡️ **环境预检查** - 减少运行时错误
+- 🤖 **双 API 降级** - OpenRouter + 豆包双保障
 
 ---
 
@@ -52,6 +53,7 @@ python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py --appid wx5c
 - [x] `zhdate` 包已安装 (`pip install zhdate`)
 - [x] `certifi` 包已安装 (`pip install certifi`)
 - [x] `WECHAT_API_KEY` 环境变量已设置
+- [x] `OPENROUTER_API_KEY` 或 `DOUBAO_API_KEY` 环境变量已设置
 - [x] 网络可访问 RSS 源和 API 服务
 
 ---
@@ -119,6 +121,7 @@ python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py --appid wx5c
 2. **环境变量检查**：
    - `WECHAT_API_KEY` ✅
    - `WECHAT_APP_ID`（可选，默认使用三更AI）
+   - `DOUBAO_API_KEY` 或 `OPENROUTER_API_KEY` ✅
 
 3. **网络连通性检查**：
    - RSS 源可访问性
@@ -282,7 +285,10 @@ python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py
 |--------|------|------|
 | `WECHAT_API_KEY` | ✅ | 微绿流量宝 API Key |
 | `WECHAT_APP_ID` | ❌ | 公众号 AppID（默认三更AI）|
+| `OPENROUTER_API_KEY` | ✅* | OpenRouter API Key（推荐）|
 | `DOUBAO_API_KEY` | ✅* | 豆包 API Key（备用）|
+
+> *至少需要设置 `OPENROUTER_API_KEY` 或 `DOUBAO_API_KEY` 之一
 
 ---
 
@@ -368,9 +374,11 @@ python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py
 ```bash
 # 检查环境变量
 echo $WECHAT_API_KEY
+echo $OPENROUTER_API_KEY
 
 # 设置环境变量
 export WECHAT_API_KEY="your-api-key"
+export OPENROUTER_API_KEY="your-api-key"
 ```
 
 ### RSS 采集失败
@@ -387,6 +395,7 @@ export WECHAT_API_KEY="your-api-key"
 **症状**：`封面图生成失败，将不使用封面图发布`
 
 **排查步骤**：
+1. 检查 API Key：`echo $DOUBAO_API_KEY` 或 `echo $OPENROUTER_API_KEY`
 2. 检查脚本权限：`ls -la ~/.claude/skills/daily-tech-news/scripts/generate_image.py`
 3. 手动测试：
    ```bash
@@ -458,6 +467,7 @@ jobs:
       - name: Run daily news
         env:
           WECHAT_API_KEY: ${{ secrets.WECHAT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python3 scripts/auto_daily_news.py
 ```
 
@@ -485,6 +495,7 @@ jobs:
 ### v2.0.3 (之前版本)
 - RSS 新闻收集器
 - 渐变色 HTML 样式
+- 双 API 降级支持（OpenRouter + 豆包）
 - 权威媒体优先策略
 - 自动封面图生成
 

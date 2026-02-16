@@ -107,7 +107,7 @@ def log(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"[{timestamp}] {message}\n")
-    print(message)
+    print(message, flush=True)  # 确保输出立即刷新
 
 def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict]:
     """获取 RSS 条目"""
