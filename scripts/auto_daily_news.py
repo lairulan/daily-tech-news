@@ -175,18 +175,23 @@ def get_traditional_lunar_date(dt):
         # 农历月份（传统写法）
         months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
                   '七月', '八月', '九月', '十月', '冬月', '腊月']
-        lunar_month = months[zh_date.lunar_month]
+        lunar_month = months[zh_date.lunar_month] if 0 < zh_date.lunar_month <= 12 else ''
 
         # 农历日期（传统写法）
         days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
                 '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
                 '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
-        lunar_day = days[zh_date.lunar_day]
+        lunar_day = days[zh_date.lunar_day] if 0 < zh_date.lunar_day <= 30 else ''
 
-        return f'{gz_year}{lunar_month}{lunar_day}'
-    except (TypeError, ValueError, IndexError) as e:
-        # zhdate 库可能无法处理某些日期（如2026年2月），返回空字符串
-        print(f"警告：农历日期转换失败 ({dt}): {e}")
+        result = f'{gz_year}{lunar_month}{lunar_day}'
+        if result:  # 如果成功转换，返回结果
+            return result
+        else:  # 如果转换为空，返回简化显示
+            return zh_date.chinese()  # 返回完整中文显示作为回退
+    except Exception as e:
+        # 真正出错时，记录详细日志并返回空（但不会让程序崩溃）
+        print(f"警告：农历日期转换失败 ({dt.strftime('%Y-%m-%d')}): {type(e).__name__}: {e}")
+        # 即使出错，也尝试返回基础的星期信息作为补充
         return ""
 
 def log(message):
