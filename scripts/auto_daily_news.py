@@ -209,8 +209,11 @@ def log(message):
 
 def extract_text_from_html(html_content):
     """从 HTML 中提取纯文本内容，用于生成摘要"""
-    # 移除 HTML 标签
-    text = re.sub(r'<[^>]+>', ' ', html_content)
+    # 先移除 style 和 script 标签及其内容
+    text = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # 移除其他 HTML 标签
+    text = re.sub(r'<[^>]+>', ' ', text)
     # 移除多余空白
     text = re.sub(r'\s+', ' ', text).strip()
     # 移除特殊字符编码
@@ -521,6 +524,14 @@ def publish_to_wechat(title, content, cover_url):
         if not success:
             log(f"发布失败原因: {result.get('error', result)}")
         return success
+    except requests.exceptions.HTTPError as e:
+        log(f"发布HTTP错误: {e}")
+        try:
+            error_detail = response.json()
+            log(f"错误详情: {error_detail}")
+        except:
+            log(f"响应内容: {response.text[:500]}")
+        return False
     except Exception as e:
         log(f"发布异常: {e}")
         return False
