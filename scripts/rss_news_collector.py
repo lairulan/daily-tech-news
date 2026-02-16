@@ -39,18 +39,23 @@ except ImportError:
 
     def get_traditional_lunar_date(dt: datetime) -> str:
         """获取传统农历日期格式：乙巳年冬月廿七"""
-        zh_date = ZhDate.from_datetime(dt)
-        chinese_full = zh_date.chinese()
-        parts = chinese_full.split()
-        gz_year = parts[1] if len(parts) >= 2 else ''
-        months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
-                  '七月', '八月', '九月', '十月', '冬月', '腊月']
-        lunar_month = months[zh_date.lunar_month]
-        days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
-                '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
-                '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
-        lunar_day = days[zh_date.lunar_day]
-        return f'{gz_year}{lunar_month}{lunar_day}'
+        try:
+            zh_date = ZhDate.from_datetime(dt)
+            chinese_full = zh_date.chinese()
+            parts = chinese_full.split()
+            gz_year = parts[1] if len(parts) >= 2 else ''
+            months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
+                      '七月', '八月', '九月', '十月', '冬月', '腊月']
+            lunar_month = months[zh_date.lunar_month]
+            days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+                    '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+                    '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
+            lunar_day = days[zh_date.lunar_day]
+            return f'{gz_year}{lunar_month}{lunar_day}'
+        except (TypeError, ValueError, IndexError) as e:
+            # zhdate 库可能无法处理某些日期（如2026年2月），返回空字符串
+            print(f"警告：农历日期转换失败 ({dt}): {e}")
+            return ""
 
     def get_weekday_name(dt: datetime) -> str:
         """获取中文星期名称"""
@@ -62,21 +67,19 @@ REQUEST_DELAY = 0.5  # 请求间隔（秒）
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
 # 检查 API Key - 优先使用 OpenRouter（GitHub Actions 更稳定），备用豆包
-if not OPENROUTER_API_KEY and not DOUBAO_API_KEY:
-    print("错误: 未设置 OPENROUTER_API_KEY 或 DOUBAO_API_KEY 环境变量")
-    print("请运行: export OPENROUTER_API_KEY='your-api-key'")
+if not DOUBAO_API_KEY:
+    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
+    print("请运行: export DOUBAO_API_KEY='your-api-key'")
     print("或者: export DOUBAO_API_KEY='your-api-key'")
     sys.exit(1)
 
 # 确定使用哪个 API
-USE_OPENROUTER = bool(OPENROUTER_API_KEY)
 
 # RSS 源配置（优化后：优先使用从 GitHub Actions 美国服务器能稳定访问的源）
 ALL_RSS_SOURCES = [
@@ -323,167 +326,13 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
         log(f"原始结果: {result[:500]}")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
 
-def call_llm_api(prompt: str, max_tokens: int = 4000) -> str:
-    """调用 LLM API（优先 OpenRouter，备用豆包）"""
+    """调用 LLM API（仅使用豆包）"""
+    return call_doubao_api(prompt, max_tokens)
 
-    if USE_OPENROUTER:
-        return call_openrouter_api(prompt, max_tokens)
-    else:
-        return call_doubao_api(prompt, max_tokens)
-
-def call_openrouter_api(prompt: str, max_tokens: int = 4000) -> str:
-    """调用 OpenRouter API（从 GitHub Actions 稳定访问）"""
-    url = "https://openrouter.ai/api/v1/chat/completions"
-
-    payload = {
-        "model": "openai/gpt-4o-mini",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.7
-    }
-
-    try:
-        data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                'Authorization': f"Bearer {OPENROUTER_API_KEY}",
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://github.com/lairulan/daily-tech-news',
-                'X-Title': 'Daily Tech News'
-            }
-        )
-
-        with urllib.request.urlopen(req, timeout=120, context=ssl_context) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            return result["choices"][0]["message"]["content"]
-
-    except Exception as e:
-        log(f"OpenRouter API 调用失败: {e}")
-        # 如果 OpenRouter 失败且有豆包 key，尝试豆包
-        if DOUBAO_API_KEY:
-            log("尝试使用豆包 API 作为备用...")
-            return call_doubao_api(prompt, max_tokens)
-        return None
-
-def call_doubao_api(prompt: str, max_tokens: int = 4000) -> str:
-    """调用豆包 API（备用）"""
-    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-
-    payload = {
-        "model": "doubao-seed-1-6-lite-251015",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.7
-    }
-
-    try:
-        data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                'Authorization': f"Bearer {DOUBAO_API_KEY}",
-                'Content-Type': 'application/json'
-            }
-        )
-
-        with urllib.request.urlopen(req, timeout=120, context=ssl_context) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            return result["choices"][0]["message"]["content"]
-
-    except Exception as e:
-        log(f"豆包 API 调用失败: {e}")
-        return None
-
-def format_news_to_html(categorized_news: Dict[str, List[Dict]], yesterday: str) -> str:
-    """将分类后的新闻格式化为 HTML"""
-    # 获取今天的日期信息
-    today = datetime.now()
-    weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
-    today_weekday = weekday_names[today.weekday()]
-    today_date = today.strftime("%Y年%m月%d日")
-
-    # 获取传统农历日期
-    today_lunar = get_traditional_lunar_date(today)  # 例如: "乙巳年冬月廿七"
-
-    # 准备新闻摘要
-    news_summary = f"以下是{yesterday}通过 RSS 收集并分类的新闻：\n\n"
-
-    for category in CATEGORIES:
-        items = categorized_news.get(category, [])
-        news_summary += f"\n## {category}\n"
-        for i, item in enumerate(items[:5], 1):
-            title = item['title'][:100]
-            news_summary += f"{i}. {title}\n"
-
-    # 构建 prompt
-    prompt = f"""你是一位专业新闻编辑。以下是{yesterday}通过 RSS 收集并分类的新闻：
-
-{news_summary}
-
-请按以下格式输出（只输出 HTML，不要其他内容）：
-
-<section style="padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;">
-
-<section style="text-align: center; padding: 20px 0 30px 0; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); border-radius: 15px; margin-bottom: 30px;">
-<p style="margin: 0; font-size: 14px; color: #666; letter-spacing: 1px;">{today_lunar}</p>
-<p style="margin: 8px 0 0 0; font-size: 20px; font-weight: bold; color: #333; letter-spacing: 3px;">{today_weekday}</p>
-<p style="margin: 8px 0 0 0; font-size: 13px; color: #999;">{today_date}</p>
-</section>
-
-<section style="margin-bottom: 30px;">
-<p style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">📱 AI 领域</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #667eea; font-weight: bold; margin-right: 8px;">01</span>新闻内容</p>
-</div>
-</section>
-
-<section style="margin-bottom: 30px;">
-<p style="display: inline-block; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(245, 87, 108, 0.3);">💻 科技动态</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #f5576c; font-weight: bold; margin-right: 8px;">01</span>新闻内容</p>
-</div>
-</section>
-
-<section style="margin-bottom: 30px;">
-<p style="display: inline-block; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);">💰 财经要闻</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 1.9; color: #333; font-size: 15px;"><span style="color: #4facfe; font-weight: bold; margin-right: 8px;">01</span>新闻内容</p>
-</div>
-</section>
-
-<section style="margin-top: 40px; padding: 25px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 15px;">
-<p style="margin: 0 0 12px 0; font-size: 16px; font-weight: bold; color: #fff; letter-spacing: 2px;">【 微 语 】</p>
-<p style="margin: 0; color: #fff; font-size: 15px; line-height: 1.8; text-align: justify;">微语内容</p>
-</section>
-
-</section>
-
-要求：
-1. 使用上述分类后的真实新闻，每类5条
-2. 每条新闻用1-2句话客观陈述事实，包含关键数据和信息
-3. 严格避免使用主观评价词汇：如"激励"、"希望"、"激发"、"精神"、"推动"、"展现"、"提醒"、"值得关注"、"引发热议"、"重大突破"等
-4. 微语部分生成励志语录，要有深度和启发性
-5. 只输出HTML，不标注新闻来源媒体
-6. 内容风格：新闻部分纯事实陈述（类似新闻通稿），微语部分励志向上"""
-
-    return call_llm_api(prompt, max_tokens=3000)
 
 def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], date_str: str):
-    """保存原始新闻数据"""
-    raw_file = os.path.join(WORK_DIR, f"raw_news_{date_str}.json")
-    with open(raw_file, 'w', encoding='utf-8') as f:
-        json.dump({
-            "all_news": news_items,
-            "categorized": categorized
-        }, f, ensure_ascii=False, indent=2)
-    log(f"原始新闻已保存: {raw_file}")
+    """调用 LLM API（仅使用豆包）"""
+    return call_doubao_api(prompt, max_tokens)
 
 def main():
     """主函数"""
