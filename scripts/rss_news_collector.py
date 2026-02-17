@@ -327,12 +327,92 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
         log(f"原始结果: {result[:500]}")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
 
+def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
+    """使用 AI 规范化标题长度，确保排版整齐
+
+    Args:
+        categorized: 分类后的新闻字典
+
+    Returns:
+        标题规范化后的新闻字典
+    """
+    log("正在规范化标题长度...")
+
+    # 收集所有标题
+    all_titles = []
+    title_mapping = {}  # 用于映射原标题到新标题
+
+    for category, items in categorized.items():
+        for item in items:
+            original_title = item.get('title', '')
+            all_titles.append(original_title)
+
+    if not all_titles:
+        return categorized
+
+    # 构建标题优化 prompt
+    titles_text = ""
+    for i, title in enumerate(all_titles, 1):
+        titles_text += f"{i}. {title}\n"
+
+    prompt = f"""你是一位专业新闻编辑。请将以下新闻标题改写为长度一致、内容丰富饱满的标题。
+
+原始标题：
+{titles_text}
+
+要求：
+1. **严格控制字数**：每个标题必须在 40-50 字之间（含标点符号）
+2. **合理使用标点**：使用逗号、顿号等标点符号分隔信息，符合中文新闻标题规范
+3. **内容丰富饱满**：包含核心事件、关键细节、背景信息、影响或意义
+4. **信息完整**：回答"谁做了什么""为什么重要""产生什么影响"
+5. **语言简洁有力**：信息量大但不冗长，使用精准的专业术语
+6. **风格统一**：保持新闻报道的专业性，突出亮点和价值
+7. **顺序对应**：按原顺序输出，每行一个标题
+
+示例：
+原标题：除夕迎「源神」？Qwen3.5以小胜大，捅破性价比天花板，大模型竞赛下半场开始了
+优化后：阿里通义千问发布Qwen3.5大模型，以小规模参数实现性能突破，打破性价比天花板，标志国产大模型竞赛进入下半场（50字）
+
+请直接输出优化后的标题列表，每行一个，不要序号和其他文字："""
+
+    result = call_llm_api(prompt, max_tokens=1000)
+    if not result:
+        log("标题规范化失败，使用原标题")
+        return categorized
+
+    # 解析优化后的标题
+    optimized_titles = [line.strip() for line in result.strip().split('\n') if line.strip()]
+
+    # 去掉可能的序号
+    cleaned_titles = []
+    for title in optimized_titles:
+        # 移除可能的序号格式：1. 或 1、
+        title = re.sub(r'^\d+[.、]\s*', '', title)
+        cleaned_titles.append(title.strip())
+
+    # 更新标题
+    if len(cleaned_titles) == len(all_titles):
+        title_index = 0
+        for category, items in categorized.items():
+            for item in items:
+                if title_index < len(cleaned_titles):
+                    old_title = item.get('title', '')
+                    new_title = cleaned_titles[title_index]
+                    item['title'] = new_title
+                    log(f"  标题优化: {len(old_title)}字 → {len(new_title)}字")
+                    title_index += 1
+        log("标题规范化完成")
+    else:
+        log(f"标题数量不匹配（原{len(all_titles)}条，优化{len(cleaned_titles)}条），使用原标题")
+
+    return categorized
+
 def call_llm_api(prompt, max_tokens=2000):
     """调用 LLM API（仅使用豆包）"""
     return call_doubao_api(prompt, max_tokens)
 
-def call_doubao_api(prompt, max_tokens=2000):
-    """调用豆包 API 生成内容"""
+def call_doubao_api(prompt, max_tokens=2000, retries=2):
+    """调用豆包 API 生成内容（带重试机制）"""
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
     headers = {
@@ -341,7 +421,7 @@ def call_doubao_api(prompt, max_tokens=2000):
     }
 
     payload = {
-        "model": "doubao-seed-1-6-lite-251015",
+        "model": "doubao-seed-2-0-lite-260215",
         "messages": [
             {"role": "user", "content": prompt}
         ],
@@ -349,23 +429,42 @@ def call_doubao_api(prompt, max_tokens=2000):
         "temperature": 0.7
     }
 
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
-    except Exception as e:
-        log(f"豆包 API 调用失败: {e}")
-        return None
+    for attempt in range(retries + 1):
+        try:
+            if attempt > 0:
+                log(f"豆包 API 重试第 {attempt} 次...")
+                time.sleep(2)  # 等待2秒后重试
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            if attempt == retries:
+                log(f"豆包 API 调用失败（已重试 {retries} 次）: {e}")
+                return None
+            else:
+                log(f"豆包 API 调用失败（第 {attempt + 1} 次尝试）: {e}")
 
-def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) -> str:
+def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "") -> str:
     """将分类后的新闻格式化为 HTML（使用 inline style，兼容微信公众号）"""
 
-    # 定义分类颜色
+    # 定义分类颜色、渐变和emoji
     category_colors = {
         "AI 领域": "#4a90e2",
         "科技动态": "#e91e63",
         "财经要闻": "#ff9800"
+    }
+
+    category_gradients = {
+        "AI 领域": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        "科技动态": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+        "财经要闻": "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
+    }
+
+    category_emojis = {
+        "AI 领域": "🤖",
+        "科技动态": "📱",
+        "财经要闻": "💰"
     }
 
     # 生成新闻HTML片段
@@ -375,13 +474,19 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) 
             continue
 
         color = category_colors.get(category, "#666")
-        # 使用 inline style，确保微信渲染器能正确显示
-        news_html += f'<p style="display: inline-block; background-color: {color}; color: #ffffff; padding: 6px 18px; border-radius: 20px; font-size: 14px; font-weight: bold; margin: 25px 0 12px;">{category}</p>\n'
+        gradient = category_gradients.get(category, f"linear-gradient(135deg, {color} 0%, {color} 100%)")
+        emoji = category_emojis.get(category, "")
+        # 使用渐变背景 + 更大字号
+        news_html += f'<p style="display: inline-block; background: {gradient}; color: #ffffff; padding: 8px 20px; border-radius: 20px; font-size: 18px; font-weight: bold; margin: 25px 0 12px;">{emoji} {category}</p>\n'
         news_html += '<div style="margin-bottom: 25px;">\n'
 
         for i, item in enumerate(items, 1):
             title = item.get('title', '无标题')
-            news_html += f'  <p style="font-size: 15px; color: #333; line-height: 1.8; margin: 8px 0;">{i:02d} {title}</p>\n'
+            # 确保标题以句号结尾
+            if not title.endswith(('。', '！', '？', '…')):
+                title = title + '。'
+            # 编号与分类颜色一致
+            news_html += f'  <p style="font-size: 15px; color: #333; line-height: 1.8; margin: 8px 0;"><span style="color: {color}; font-weight: bold;">{i:02d}</span> {title}</p>\n'
 
         news_html += '</div>\n\n'
 
@@ -391,42 +496,90 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) 
         for item in items:
             news_texts.append(f"【{category}】{item.get('title', '')}")
 
-    microword_prompt = f"""根据以下新闻标题，写一段30-50字的总结，概括今日科技、AI、财经领域的关键动向。语气轻松、专业。
+    microword_prompt = f"""根据以下新闻标题，写一句与今日科技动态相关的深度金句。
 
 新闻标题:
 {chr(10).join(news_texts[:10])}
 
 要求:
-1. 30-50字
-2. 突出今日最重要的1-2个亮点
-3. 语气轻松但专业
-4. 只输出文字内容，不要任何额外说明
+1. 25-40字，有节奏感，富有哲理和思考深度
+2. 不要总结新闻内容，而是从新闻背后提炼出深层洞察或启示
+3. 与科技、AI、创新、商业趋势相关，要有时代感
+4. 语气深沉有力，像一句让人深思的格言或警句
+5. 必须包含标点符号（逗号、句号或感叹号），句式可以是转折、递进或对比
+6. 只输出金句本身，不要任何前缀说明
 
-示例：今日AI大模型竞争白热化，央行政策释放积极信号，科技股市场迎来新动能。"""
+风格示例（参考，不要照抄）：
+- 科技的边界每天都在后退，而真正的壁垒，始终是人的认知与格局。
+- 当所有人都在追逐下一个风口，最稳的赢家，往往是那个定义了规则的人。
+- AI 不会取代人，但懂得用 AI 的人，终将重塑每一个行业的生存法则。
+- 每一次技术革命的背后，都是旧秩序的终结与新信仰的重建。
+- 时代抛弃你时，连招呼都不会打"""
 
     microword = call_llm_api(microword_prompt, max_tokens=200)
     if not microword:
-        microword = "今日科技、AI、财经领域动态汇总，为您带来最新资讯。"
+        microword = "科技的边界每天都在后退，而真正的壁垒，始终是人的认知与格局。"
     microword = microword.strip().strip('"\'')
+    # 确保微语以标点符号结尾
+    if not microword.endswith(('。', '！', '？', '…', '，')):
+        microword = microword + '。'
 
-    # 全部使用 inline style，避免微信过滤
+    # 使用 AI 生成智能摘要（用于微信公众号文章摘要）
+    summary_prompt = f"""根据以下新闻标题，生成一句简短的文章摘要，用于微信公众号文章摘要。
+
+新闻标题:
+{chr(10).join(news_texts[:15])}
+
+要求:
+1. 25-35字，简洁有力，能吸引读者点击
+2. 突出今日新闻的核心关键词（如品牌名、产品名、技术名称）
+3. 语言要有节奏感，可以用逗号分隔关键点
+4. 风格示例（参考格式，不要照抄）：
+   - 通义千问Qwen3.5发布，字节Seed 2.0登顶榜单，央视春晚机器人惊艳亮相。
+   - DeepSeek震撼发布，OpenAI人事变动，港股市场迎来新机遇。
+   - GPT-5传闻不断，特斯拉FSD重大更新，字节跳动大额套现。
+5. 只输出摘要本身，不要任何前缀说明
+6. 确保以标点符号结尾（句号、感叹号或问号）"""
+
+    summary = call_llm_api(summary_prompt, max_tokens=150)
+    if not summary:
+        summary = "AI、科技、财经领域今日重要动态。"
+    summary = summary.strip().strip('"\'')
+    # 确保摘要以标点符号结尾
+    if not summary.endswith(('。', '！', '？', '…')):
+        summary = summary + '。'
+
+    # 构建日期卡片内容（三行格式）
+    date_card_lines = []
+    if lunar_date:
+        date_card_lines.append(f'<div style="font-size: 13px; margin-bottom: 6px; color: rgba(255,255,255,0.85);">{lunar_date}</div>')
+    if weekday:
+        date_card_lines.append(f'<div style="font-size: 32px; margin-bottom: 6px; font-weight: bold; letter-spacing: 2px;">{weekday}</div>')
+    date_card_lines.append(f'<div style="font-size: 16px; font-weight: 500; color: rgba(255,255,255,0.95);">{yesterday_str}</div>')
+
+    date_card_html = '\n'.join(date_card_lines)
+
+    # 全部使用 inline style + 渐变背景，避免微信过滤
     html_template = f"""<div style="max-width: 750px; width: 100%; margin: 0 auto; padding: 0 15px; font-family: 微软雅黑, sans-serif; background-color: #ffffff; color: #333; line-height: 1.8;">
 
-<p style="background-color: #667eea; padding: 15px 0; text-align: center; border-radius: 8px; margin: 20px 0 30px; color: #ffffff; font-size: 16px; font-weight: 500;">{yesterday_str}</p>
+<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px 0; text-align: center; border-radius: 10px; margin: 20px 0 30px; color: #ffffff; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
+{date_card_html}
+</div>
 
 {news_html}
-<p style="background-color: #ff6b6b; padding: 20px; border-radius: 8px; color: #ffffff; font-size: 15px; line-height: 1.8; margin: 30px 0 20px; text-align: center;">{microword}</p>
+<p style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 20px; border-radius: 8px; color: #ffffff; font-size: 15px; line-height: 1.8; margin: 30px 0 20px; text-align: left; box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);">【今日微语】{microword}</p>
 
 </div>"""
 
-    return html_template
+    return html_template, summary
 
-def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], date_str: str):
+def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], date_str: str, summary: str = ""):
     """保存原始新闻数据为 JSON"""
     raw_data = {
         "date": date_str,
         "total_news": len(news_items),
         "categorized_count": {cat: len(items) for cat, items in categorized.items()},
+        "summary": summary,  # 添加智能摘要
         "all_news": news_items,
         "categorized_news": categorized
     }
@@ -444,10 +597,17 @@ def main():
     log("=" * 50)
     log("RSS 新闻收集开始")
 
-    # 计算日期
-    yesterday = datetime.now() - timedelta(days=1)
-    yesterday_str = yesterday.strftime("%Y年%m月%d日")
-    today_str = datetime.now().strftime("%Y%m%d")
+    # 计算日期（使用今天作为显示日期）
+    today = datetime.now()
+    today_display_str = today.strftime("%Y年%m月%d日")
+    today_str = today.strftime("%Y%m%d")
+
+    # 计算昨天日期（用于新闻收集时间范围）
+    yesterday = today - timedelta(days=1)
+
+    # 计算农历和星期（使用今天）
+    lunar_date = get_traditional_lunar_date(today)
+    weekday = get_weekday_name(today)
 
     # 1. 收集所有 RSS 新闻
     all_news = collect_all_news()
@@ -455,16 +615,21 @@ def main():
     # 2. 使用 AI 分类
     categorized_news = classify_news_with_ai(all_news)
 
-    # 保存原始数据
-    save_raw_news(all_news, categorized_news, today_str)
+    # 2.5 规范化标题长度
+    categorized_news = normalize_titles(categorized_news)
 
-    # 3. 格式化为 HTML
+    # 3. 格式化为 HTML（同时生成智能摘要）
     log("正在格式化新闻...")
-    html_content = format_news_to_html(categorized_news, yesterday_str)
+    html_content, summary = format_news_to_html(categorized_news, today_display_str, lunar_date, weekday)
 
     if not html_content:
         log("格式化失败")
-        return None
+        return None, None
+
+    log(f"智能摘要: {summary}")
+
+    # 保存原始数据（包含摘要）
+    save_raw_news(all_news, categorized_news, today_str, summary)
 
     # 清理可能的 markdown 代码块标记
     html_content = html_content.strip()
@@ -486,7 +651,7 @@ def main():
     log("RSS 新闻收集完成")
     log("=" * 50)
 
-    return html_content
+    return html_content, summary
 
 if __name__ == "__main__":
     main()

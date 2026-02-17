@@ -33,27 +33,33 @@ def get_traditional_lunar_date(dt: datetime) -> str:
     try:
         from zhdate import ZhDate
     except ImportError:
-        return "农历日期获取失败（请安装 zhdate）"
+        return ""
 
-    zh_date = ZhDate.from_datetime(dt)
+    try:
+        # 标准化为只包含日期部分（去除时间），避免zhdate报错
+        date_only = datetime(dt.year, dt.month, dt.day)
+        zh_date = ZhDate.from_datetime(date_only)
 
-    # 获取天干地支年
-    chinese_full = zh_date.chinese()
-    parts = chinese_full.split()
-    gz_year = parts[1] if len(parts) >= 2 else ''
+        # 获取天干地支年
+        chinese_full = zh_date.chinese()
+        parts = chinese_full.split()
+        gz_year = parts[1] if len(parts) >= 2 else ''
 
-    # 农历月份（传统写法）
-    months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
-              '七月', '八月', '九月', '十月', '冬月', '腊月']
-    lunar_month = months[zh_date.lunar_month]
+        # 农历月份（传统写法）
+        months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
+                  '七月', '八月', '九月', '十月', '冬月', '腊月']
+        lunar_month = months[zh_date.lunar_month]
 
-    # 农历日期（传统写法）
-    days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
-            '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
-            '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
-    lunar_day = days[zh_date.lunar_day]
+        # 农历日期（传统写法）
+        days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+                '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+                '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
+        lunar_day = days[zh_date.lunar_day]
 
-    return f'{gz_year}{lunar_month}{lunar_day}'
+        return f'{gz_year}{lunar_month}{lunar_day}'
+    except (TypeError, ValueError, IndexError, Exception):
+        # zhdate 库可能无法处理某些日期，返回空字符串
+        return ""
 
 def get_weekday_name(dt: datetime) -> str:
     """获取中文星期名称
