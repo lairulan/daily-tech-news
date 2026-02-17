@@ -370,25 +370,34 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) 
                 news_summary += f"   {item['summary'][:100]}...\n"
             news_summary += f"   链接: {item.get('link', '无')}\n\n"
 
-    prompt = f"""请将以下新闻内容转换为精美的 HTML 格式，适合发布到微信公众号。
+    prompt = f"""请将以下新闻内容转换为简洁的 HTML 格式，适合发布到微信公众号。
 
 日期: {yesterday_str}
 
 新闻内容:
 {news_summary}
 
-要求:
-1. 使用浅色渐变背景的日期卡片（顶部）
-2. 三个分类区块："AI 领域"、"科技动态"、"财经要闻"
-3. 每条新闻包含标题、简介、来源标签
-4. 使用现代化的卡片式设计
-5. 适配移动端阅读
-6. 不要添加任何代码块标记
-7. **重要：不要使用列表标签（ul, ol, li），全部使用 div 包裹**
-8. **重要：不要使用 border-left、左边框或任何竖条样式**
-9. **保持简洁清爽的卡片布局，每条新闻用 div.news-item 包裹即可**
+样式要求（严格遵守）:
+1. **日期卡片**: 紫色渐变背景(#667eea到#764ba2)，居中显示日期，字体16px
+2. **分类标签**: 使用彩色胶囊式标签，圆角20px，内边距8px 20px
+   - AI 领域: 蓝色 #4a90e2
+   - 科技动态: 粉色 #e91e63
+   - 财经要闻: 橙色 #ff9800
+3. **新闻列表**: 简洁的编号(01, 02...)加文字，不使用卡片，白底黑字，行间距1.8
+4. **微语板块**: 橙红色渐变卡片(#ff6b6b到#ee5a24)，包含一段总结性文字
+5. **整体**: max-width 750px，白色背景，字体"微软雅黑"
+6. **禁止**: 不要使用任何卡片包裹新闻、不要边框、不要阴影、不要来源标签
 
-直接输出 HTML 内容，不要任何其他说明文字。"""
+格式参考:
+```
+<style>样式定义</style>
+<div class="date-card">日期</div>
+<div class="category-tag">分类标签</div>
+<div class="news-list">01 新闻内容</div>
+<div class="microword">微语内容</div>
+```
+
+直接输出完整的 HTML 内容（包含style标签），不要任何其他说明文字或代码块标记。"""
 
     html_content = call_llm_api(prompt, max_tokens=3000)
     return html_content if html_content else ""
