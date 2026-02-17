@@ -359,7 +359,7 @@ def call_doubao_api(prompt, max_tokens=2000):
         return None
 
 def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) -> str:
-    """将分类后的新闻格式化为 HTML（使用固定模板）"""
+    """将分类后的新闻格式化为 HTML（使用 inline style，兼容微信公众号）"""
 
     # 定义分类颜色
     category_colors = {
@@ -375,12 +375,13 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) 
             continue
 
         color = category_colors.get(category, "#666")
-        news_html += f'<div class="category-tag" style="background-color: {color};">{category}</div>\n'
-        news_html += '<div class="news-list">\n'
+        # 使用 inline style，确保微信渲染器能正确显示
+        news_html += f'<p style="display: inline-block; background-color: {color}; color: #ffffff; padding: 6px 18px; border-radius: 20px; font-size: 14px; font-weight: bold; margin: 25px 0 12px;">{category}</p>\n'
+        news_html += '<div style="margin-bottom: 25px;">\n'
 
         for i, item in enumerate(items, 1):
             title = item.get('title', '无标题')
-            news_html += f'  <div class="news-item">{i:02d} {title}</div>\n'
+            news_html += f'  <p style="font-size: 15px; color: #333; line-height: 1.8; margin: 8px 0;">{i:02d} {title}</p>\n'
 
         news_html += '</div>\n\n'
 
@@ -408,63 +409,15 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) 
         microword = "今日科技、AI、财经领域动态汇总，为您带来最新资讯。"
     microword = microword.strip().strip('"\'')
 
-    # 固定HTML模板
-    html_template = f"""<style>
-body {{
-  max-width: 750px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 0 15px;
-  font-family: "微软雅黑", sans-serif;
-  background-color: #ffffff;
-  color: #333;
-  line-height: 1.8;
-}}
-.date-card {{
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 15px 0;
-  text-align: center;
-  border-radius: 8px;
-  margin: 20px 0 30px;
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 500;
-}}
-.category-tag {{
-  display: inline-block;
-  color: #ffffff;
-  padding: 8px 20px;
-  border-radius: 20px;
-  font-size: 15px;
-  font-weight: bold;
-  margin: 20px 0 15px;
-}}
-.news-list {{
-  margin-bottom: 25px;
-}}
-.news-item {{
-  font-size: 15px;
-  color: #333;
-  line-height: 1.8;
-  margin: 8px 0;
-  padding-left: 0;
-}}
-.microword {{
-  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
-  padding: 20px;
-  border-radius: 8px;
-  color: #ffffff;
-  font-size: 15px;
-  line-height: 1.8;
-  margin: 30px 0 20px;
-  text-align: center;
-}}
-</style>
+    # 全部使用 inline style，避免微信过滤
+    html_template = f"""<div style="max-width: 750px; width: 100%; margin: 0 auto; padding: 0 15px; font-family: 微软雅黑, sans-serif; background-color: #ffffff; color: #333; line-height: 1.8;">
 
-<div class="date-card">{yesterday_str}</div>
+<p style="background-color: #667eea; padding: 15px 0; text-align: center; border-radius: 8px; margin: 20px 0 30px; color: #ffffff; font-size: 16px; font-weight: 500;">{yesterday_str}</p>
 
 {news_html}
-<div class="microword">{microword}</div>"""
+<p style="background-color: #ff6b6b; padding: 20px; border-radius: 8px; color: #ffffff; font-size: 15px; line-height: 1.8; margin: 30px 0 20px; text-align: center;">{microword}</p>
+
+</div>"""
 
     return html_template
 
