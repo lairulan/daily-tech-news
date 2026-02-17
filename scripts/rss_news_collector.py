@@ -359,48 +359,114 @@ def call_doubao_api(prompt, max_tokens=2000):
         return None
 
 def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str) -> str:
-    """将分类后的新闻格式化为 HTML"""
-    # 构建 prompt让 AI 生成新闻 HTML
-    news_summary = ""
+    """将分类后的新闻格式化为 HTML（使用固定模板）"""
+
+    # 定义分类颜色
+    category_colors = {
+        "AI 领域": "#4a90e2",
+        "科技动态": "#e91e63",
+        "财经要闻": "#ff9800"
+    }
+
+    # 生成新闻HTML片段
+    news_html = ""
     for category, items in categorized.items():
-        news_summary += f"\n## {category}\n"
+        if not items:
+            continue
+
+        color = category_colors.get(category, "#666")
+        news_html += f'<div class="category-tag" style="background-color: {color};">{category}</div>\n'
+        news_html += '<div class="news-list">\n'
+
         for i, item in enumerate(items, 1):
-            news_summary += f"{i}. 【{item['rss_source']}】{item['title']}\n"
-            if item.get('summary'):
-                news_summary += f"   {item['summary'][:100]}...\n"
-            news_summary += f"   链接: {item.get('link', '无')}\n\n"
+            title = item.get('title', '无标题')
+            news_html += f'  <div class="news-item">{i:02d} {title}</div>\n'
 
-    prompt = f"""请将以下新闻内容转换为简洁的 HTML 格式，适合发布到微信公众号。
+        news_html += '</div>\n\n'
 
-日期: {yesterday_str}
+    # 使用 AI 生成微语（简短总结）
+    news_texts = []
+    for category, items in categorized.items():
+        for item in items:
+            news_texts.append(f"【{category}】{item.get('title', '')}")
 
-新闻内容:
-{news_summary}
+    microword_prompt = f"""根据以下新闻标题，写一段30-50字的总结，概括今日科技、AI、财经领域的关键动向。语气轻松、专业。
 
-样式要求（严格遵守）:
-1. **日期卡片**: 紫色渐变背景(#667eea到#764ba2)，居中显示日期，字体16px
-2. **分类标签**: 使用彩色胶囊式标签，圆角20px，内边距8px 20px
-   - AI 领域: 蓝色 #4a90e2
-   - 科技动态: 粉色 #e91e63
-   - 财经要闻: 橙色 #ff9800
-3. **新闻列表**: 简洁的编号(01, 02...)加文字，不使用卡片，白底黑字，行间距1.8
-4. **微语板块**: 橙红色渐变卡片(#ff6b6b到#ee5a24)，包含一段总结性文字
-5. **整体**: max-width 750px，白色背景，字体"微软雅黑"
-6. **禁止**: 不要使用任何卡片包裹新闻、不要边框、不要阴影、不要来源标签
+新闻标题:
+{chr(10).join(news_texts[:10])}
 
-格式参考:
-```
-<style>样式定义</style>
-<div class="date-card">日期</div>
-<div class="category-tag">分类标签</div>
-<div class="news-list">01 新闻内容</div>
-<div class="microword">微语内容</div>
-```
+要求:
+1. 30-50字
+2. 突出今日最重要的1-2个亮点
+3. 语气轻松但专业
+4. 只输出文字内容，不要任何额外说明
 
-直接输出完整的 HTML 内容（包含style标签），不要任何其他说明文字或代码块标记。"""
+示例：今日AI大模型竞争白热化，央行政策释放积极信号，科技股市场迎来新动能。"""
 
-    html_content = call_llm_api(prompt, max_tokens=3000)
-    return html_content if html_content else ""
+    microword = call_llm_api(microword_prompt, max_tokens=200)
+    if not microword:
+        microword = "今日科技、AI、财经领域动态汇总，为您带来最新资讯。"
+    microword = microword.strip().strip('"\'')
+
+    # 固定HTML模板
+    html_template = f"""<style>
+body {{
+  max-width: 750px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 15px;
+  font-family: "微软雅黑", sans-serif;
+  background-color: #ffffff;
+  color: #333;
+  line-height: 1.8;
+}}
+.date-card {{
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 15px 0;
+  text-align: center;
+  border-radius: 8px;
+  margin: 20px 0 30px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 500;
+}}
+.category-tag {{
+  display: inline-block;
+  color: #ffffff;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: bold;
+  margin: 20px 0 15px;
+}}
+.news-list {{
+  margin-bottom: 25px;
+}}
+.news-item {{
+  font-size: 15px;
+  color: #333;
+  line-height: 1.8;
+  margin: 8px 0;
+  padding-left: 0;
+}}
+.microword {{
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  padding: 20px;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1.8;
+  margin: 30px 0 20px;
+  text-align: center;
+}}
+</style>
+
+<div class="date-card">{yesterday_str}</div>
+
+{news_html}
+<div class="microword">{microword}</div>"""
+
+    return html_template
 
 def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], date_str: str):
     """保存原始新闻数据为 JSON"""
