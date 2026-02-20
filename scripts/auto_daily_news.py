@@ -368,11 +368,11 @@ def generate_news_html(yesterday_str, today_lunar, today_weekday, today_date):
 <section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
 <p style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">📱 AI 领域</p>
 <div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">01</span>AI新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">02</span>AI新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">03</span>AI新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">04</span>AI新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #667eea;"><span style="color: #667eea; font-weight: bold; margin-right: 10px;">05</span>AI新闻5</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">01</span>AI新闻1</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">02</span>AI新闻2</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">03</span>AI新闻3</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">04</span>AI新闻4</p>
+<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">05</span>AI新闻5</p>
 </div>
 </section>
 
@@ -380,11 +380,11 @@ def generate_news_html(yesterday_str, today_lunar, today_weekday, today_date):
 <section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
 <p style="display: inline-block; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(245, 87, 108, 0.3);">💻 科技动态</p>
 <div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">01</span>科技新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">02</span>科技新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">03</span>科技新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">04</span>科技新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #f5576c;"><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">05</span>科技新闻5</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">01</span>科技新闻1</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">02</span>科技新闻2</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">03</span>科技新闻3</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">04</span>科技新闻4</p>
+<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">05</span>科技新闻5</p>
 </div>
 </section>
 
@@ -392,11 +392,11 @@ def generate_news_html(yesterday_str, today_lunar, today_weekday, today_date):
 <section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
 <p style="display: inline-block; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);">💰 财经要闻</p>
 <div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">01</span>财经新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">02</span>财经新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">03</span>财经新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">04</span>财经新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; padding-left: 5px; border-left: 3px solid #4facfe;"><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">05</span>财经新闻5</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">01</span>财经新闻1</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">02</span>财经新闻2</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">03</span>财经新闻3</p>
+<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">04</span>财经新闻4</p>
+<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">05</span>财经新闻5</p>
 </div>
 </section>
 
