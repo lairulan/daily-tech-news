@@ -270,7 +270,7 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
             ["python3", rss_script],
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=420,  # 7分钟超时时间，确保有足够时间收集真实新闻
             cwd=SCRIPT_DIR
         )
 
@@ -330,7 +330,7 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
         return html_content
 
     except subprocess.TimeoutExpired as e:
-        log(f"RSS 收集超时 (180秒): {e}")
+        log(f"RSS 收集超时 (420秒): {e}")
         return None
     except FileNotFoundError as e:
         log(f"RSS 收集器脚本未找到: {e}")
@@ -591,13 +591,10 @@ def main():
     log("正在生成新闻内容...")
     content = generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date)
 
-    # 如果 RSS 收集失败，使用备用方案
+    # 如果 RSS 收集失败，直接退出，不使用AI生成虚假新闻（确保内容真实性）
     if not content:
-        log("RSS 收集失败，使用备用方案生成新闻...")
-        content = generate_news_html(yesterday_str, today_lunar, today_weekday, today_date)
-
-    if not content:
-        log("新闻内容生成失败")
+        log("❌ RSS 收集失败，为确保新闻真实性，任务终止")
+        log("请检查网络连接或RSS源可用性")
         sys.exit(1)
 
     log(f"生成的内容长度: {len(content)} 字符")
