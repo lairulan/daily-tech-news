@@ -479,19 +479,24 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
         color = category_colors.get(category, "#666")
         gradient = category_gradients.get(category, f"linear-gradient(135deg, {color} 0%, {color} 100%)")
         emoji = category_emojis.get(category, "")
-        # 使用渐变背景 + 更大字号
-        news_html += f'<p style="display: inline-block; background: {gradient}; color: #ffffff; padding: 8px 20px; border-radius: 20px; font-size: 18px; font-weight: bold; margin: 25px 0 12px;">{emoji} {category}</p>\n'
-        news_html += '<div style="margin-bottom: 25px;">\n'
+
+        # 使用 section 标签，添加白色圆角背景卡片
+        news_html += f'<section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">\n'
+        news_html += f'<p style="display: inline-block; background: {gradient}; color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">{emoji} {category}</p>\n'
+        news_html += '<div style="padding: 0 10px;">\n'
 
         for i, item in enumerate(items, 1):
             title = item.get('title', '无标题')
             # 确保标题以句号结尾
             if not title.endswith(('。', '！', '？', '…')):
                 title = title + '。'
-            # 编号与分类颜色一致
-            news_html += f'  <p style="font-size: 15px; color: #333; line-height: 1.8; margin: 8px 0;"><span style="color: {color}; font-weight: bold;">{i:02d}</span> {title}</p>\n'
+            # 最后一条新闻的 margin-bottom 为 0
+            margin_style = "margin: 0 0 15px 0" if i < len(items) else "margin: 0 0 0 0"
+            # 编号右边加一个小竖线装饰
+            news_html += f'  <p style="{margin_style}; line-height: 2; color: #333; font-size: 15px;"><span style="color: {color}; font-weight: bold; margin-right: 10px; padding-right: 10px; border-right: 3px solid {color};">{i:02d}</span>{title}</p>\n'
 
-        news_html += '</div>\n\n'
+        news_html += '</div>\n'
+        news_html += '</section>\n\n'
 
     # 使用 AI 生成微语（简短总结）
     news_texts = []
