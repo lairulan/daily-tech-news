@@ -192,27 +192,30 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
                     break
             item['source'] = source_text if source_text else '未知来源'
 
-            # 精确的时间检查：只收集昨天的新闻
-            if item['published']:
-                try:
-                    pub_time = parsedate_to_datetime(item['published'])
-                    # 转换为本地时区（北京时间）进行比较
-                    pub_time_local = pub_time.astimezone()
+            # 精确的时间检查：只收集昨天的新闻（严格模式）
+            if not item['published']:
+                # 没有发布时间的新闻，跳过以确保内容真实性
+                continue
 
-                    # 提取日期部分进行比较（忽略具体时间）
-                    pub_date = pub_time_local.date()
-                    yesterday_date = yesterday_start.date()
+            try:
+                pub_time = parsedate_to_datetime(item['published'])
+                # 转换为本地时区（北京时间）进行比较
+                pub_time_local = pub_time.astimezone()
 
-                    # 只保留昨天的新闻
-                    if pub_date != yesterday_date:
-                        continue
+                # 提取日期部分进行比较（忽略具体时间）
+                pub_date = pub_time_local.date()
+                yesterday_date = yesterday_start.date()
 
-                    # 记录新闻的发布时间（用于调试）
-                    item['parsed_time'] = pub_time_local.strftime("%Y-%m-%d %H:%M:%S")
-                except:
-                    # 无法解析时间，使用宽松的时间窗口（过去24小时）
-                    # 这样可以确保不会遗漏重要新闻
-                    pass
+                # 只保留昨天的新闻
+                if pub_date != yesterday_date:
+                    continue
+
+                # 记录新闻的发布时间（用于调试）
+                item['parsed_time'] = pub_time_local.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as e:
+                # 无法解析时间格式，跳过此新闻以确保内容真实性
+                # 不记录日志避免刷屏，这是正常的过滤行为
+                continue
 
             items.append(item)
 
