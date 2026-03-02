@@ -15,8 +15,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # 添加超时限制
-    timeout-minutes: 15
+    # 添加超时限制（30分钟）
+    timeout-minutes: 30
 
     steps:
       - name: 检出代码

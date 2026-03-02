@@ -136,11 +136,21 @@ def validate_news_content(html_content: str) -> dict:
     if len(html_content) < 500:
         errors.append("内容过短（少于500字符）")
 
-    # 检查是否包含三个分类
-    categories = ["AI 领域", "科技动态", "财经要闻"]
-    for cat in categories:
-        if cat not in html_content:
-            errors.append(f"缺少分类: {cat}")
+    # 检查是否包含三个分类（支持带空格和不带空格两种格式）
+    category_checks = [
+        ("AI 领域", "AI领域"),
+        "科技动态",
+        "财经要闻"
+    ]
+    for cat_check in category_checks:
+        if isinstance(cat_check, tuple):
+            # 任一匹配即可
+            found = any(c in html_content for c in cat_check)
+            if not found:
+                errors.append(f"缺少分类: {cat_check[0]}")
+        else:
+            if cat_check not in html_content:
+                errors.append(f"缺少分类: {cat_check}")
 
     # 统计新闻条数（通过编号检测）
     news_count = 0

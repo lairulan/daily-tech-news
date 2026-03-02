@@ -66,6 +66,129 @@ except ImportError:
 # 速率限制配置
 REQUEST_DELAY = 0.5  # 请求间隔（秒）
 
+# 排除规则：过滤掉无效或低质量的标题
+TITLE_EXCLUDE_PATTERNS = [
+    r"^本文[将能可]?",  # 以"本文"开头的标题
+    r"^一文带你",  # "一文带你了解..."
+    r"^一张图",  # "一张图看懂..."
+    r"^视频：",  # 视频标题
+    r"^直播：",  # 直播标题
+    r"^问答：",  # 问答标题
+    r"^采访：",  # 采访标题
+    r"^独家",  # 独家内容（通常需要上下文）
+    r"^重磅",  # 重磅消息（通常需要上下文）
+    r"^突发",  # 突发新闻（通常需要上下文）
+    r"[?？]$",  # 以问号结尾的标题（通常是引导性问题，不是新闻）
+    r"^[^a-zA-Z0-9\u4e00-\u9fa5]",  # 以非字母数字中文开头（可能是特殊格式）
+]
+
+# 排除关键词（任何匹配这些关键词的标题都会被过滤）
+# 但如果标题同时包含科技/AI/财经关键词，则保留
+TITLE_EXCLUDE_KEYWORDS = [
+    "红包大战",
+    "春晚",
+    "春节",
+    "过年",
+    "元宵节",
+    "中秋节",
+    "端午节",
+    "清明节",
+    "国庆节",
+    "五一",
+    "妇女节",
+    "情人节",
+    "圣诞节",
+    "平安夜",
+    "双十一",
+    "618",
+    "年货节",
+    "促销",
+    "优惠",
+    "打折",
+    "抽奖",
+    "福利",
+    "送礼",
+    "养生",
+    "食疗",
+    "减肥",
+    "美容",
+    "护肤",
+    "整形",
+]
+
+# 如果标题包含以下关键词，即使有排除关键词也保留
+KEEP_KEYWORDS = [
+    "AI", "大模型", "LLM", "ChatGPT", "OpenAI", "Google", "Meta", "微软",
+    "英伟达", "NVIDIA", "芯片", "GPU", "模型", "算法", "机器学习", "深度学习",
+    "自动驾驶", "智能驾驶", "电动车", "Tesla", "比亚迪",
+    "融资", "投资", "上市", "IPO", "并购", "收购",
+    "营收", "净利润", "财报", "业绩", "股价", "市值",
+    "美元", "人民币", "加息", "降息", "央行", "美联储",
+    "石油", "天然气", "能源", "油价", "OPEC",
+    "手机", "电脑", "笔记本", "平板", "iPhone", "Android",
+    "发布", "推出", "上线", "产品", "服务",
+    "技术", "研究", "突破", "创新",
+]
+
+
+def is_valid_news_title(title: str) -> bool:
+    """检查标题是否为有效的新闻标题
+
+    Args:
+        title: 新闻标题
+
+    Returns:
+        True 如果标题有效，否则 False
+    """
+    if not title or len(title.strip()) < 8:
+        return False
+
+    # 清理标题
+    title = title.strip()
+
+    # 检查排除模式
+    for pattern in TITLE_EXCLUDE_PATTERNS:
+        if re.match(pattern, title):
+            # 检查是否有保留关键词
+            has_keep_keyword = any(kw.lower() in title.lower() for kw in KEEP_KEYWORDS)
+            if not has_keep_keyword:
+                return False
+
+    # 检查排除关键词
+    for keyword in TITLE_EXCLUDE_KEYWORDS:
+        if keyword in title:
+            # 检查是否有保留关键词
+            has_keep_keyword = any(kw.lower() in title.lower() for kw in KEEP_KEYWORDS)
+            if not has_keep_keyword:
+                return False
+
+    # 检查标题是否包含新闻要素（至少包含以下之一）
+    news_elements = [
+        "发布", "推出", "推出", "上线", "融资", "投资", "收购", "并购",
+        "获得", "完成", "宣布", "召开", "举行", "成立", "上市",
+        "产品", "服务", "公司", "企业", "机构", "平台",
+        "技术", "研究", "开发", "实现", "突破", "创新",
+        "市场", "行业", "领域", "全球", "中国", "美国", "欧洲",
+        "AI", "大模型", "模型", "模型", "算法", "芯片", "GPU",
+        "净利润", "营收", "财报", "利润", "销售额",
+    ]
+
+    has_news_element = any(elem in title for elem in news_elements)
+    if not has_news_element:
+        # 如果没有新闻要素，检查是否是事件类标题
+        event_patterns = [
+            r"\d+月\d+日",  # 日期
+            r"\d+日",  # 某日
+            r"北京", "上海", "深圳", "广州", "杭州",
+            r"年度", r"季度", r"月份",
+            r"首次", r"第一届", r"第二届",
+        ]
+        has_event = any(re.search(p, title) for p in event_patterns)
+        if not has_event:
+            return False
+
+    return True
+
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 # 工作目录 - 兼容本地和 GitHub Actions
@@ -85,17 +208,22 @@ if not DOUBAO_API_KEY:
 # RSS 源配置（优化后：优先使用从 GitHub Actions 美国服务器能稳定访问的源）
 ALL_RSS_SOURCES = [
     # 国内源（从美国访问较稳定的）
-    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 10},
-    {"name": "36氪", "url": "https://36kr.com/feed", "limit": 10},
-    {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "limit": 8},
-    {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 8},
+    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 15},
+    {"name": "36氪", "url": "https://36kr.com/feed", "limit": 15},
+    {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "limit": 12},
+    {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 12},
+    {"name": "极客公园", "url": "https://www.geekpark.net/feed", "limit": 10},
+    {"name": "爱范儿", "url": "https://www.ifanr.com/feed", "limit": 10},
+    {"name": "少数派", "url": "https://sspai.com/feed", "limit": 8},
+    {"name": "品玩", "url": "https://www.pingwest.com/feed", "limit": 10},
     # 国际源（从美国访问稳定）
-    {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "limit": 8},
-    {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "limit": 8},
-    {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "limit": 8},
-    {"name": "Wired", "url": "https://www.wired.com/feed/rss", "limit": 5},
-    {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "limit": 5},
-    {"name": "Reuters Tech", "url": "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best", "limit": 5},
+    {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "limit": 12},
+    {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "limit": 12},
+    {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "limit": 10},
+    {"name": "Wired", "url": "https://www.wired.com/feed/rss", "limit": 8},
+    {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "limit": 8},
+    {"name": "MIT Tech Review", "url": "https://www.technologyreview.com/feed/", "limit": 8},
+    {"name": "VentureBeat AI", "url": "https://venturebeat.com/ai/feed/", "limit": 8},
 ]
 
 # 目标分类
@@ -251,14 +379,209 @@ def collect_all_news() -> List[Dict]:
     # 去重（基于标题）
     seen_titles = set()
     unique_items = []
+    invalid_count = 0
     for item in all_items:
-        title_lower = item['title'].lower()
-        if title_lower not in seen_titles and item['title'] != '无标题':
+        title = item['title']
+        title_lower = title.lower()
+
+        # 检查标题是否有效
+        if not is_valid_news_title(title):
+            invalid_count += 1
+            log(f"  过滤无效标题: {title[:30]}...")
+            continue
+
+        if title_lower not in seen_titles and title != '无标题':
             seen_titles.add(title_lower)
             unique_items.append(item)
 
+    if invalid_count > 0:
+        log(f"已过滤 {invalid_count} 条无效标题")
+
     log(f"收集完成，共获取 {len(unique_items)} 条去重后新闻")
     return unique_items
+
+
+def generate_supplement_news(target_count: int = 15) -> List[Dict]:
+    """使用 AI 生成补充新闻（当 RSS 收集不足时）- 兼容版本
+
+    生成平衡的3类新闻，每类约5条
+
+    Args:
+        target_count: 目标新闻数量
+
+    Returns:
+        补充的新闻列表
+    """
+    log(f"RSS 新闻不足，使用 AI 补充新闻（目标 {target_count} 条）...")
+
+    today = datetime.now()
+    today_str = today.strftime("%Y年%m月%d日")
+
+    # 每类生成5条
+    per_category = 5
+
+    prompt = f"""请生成{today_str}的AI、科技、财经领域的真实新闻标题。
+
+要求：
+1. 生成 {per_category * 3} 条新闻标题（AI领域{per_category}条、科技动态{per_category}条、财经要闻{per_category}条）
+2. 每条标题必须是真实的、有具体事件的新闻，不能是泛泛而谈
+3. 格式：每行一个标题，不要序号
+4. 严格控制在 20-50 字之间
+5. 标题要包含具体的事件、公司名、产品名等
+
+分类要求（按顺序每类5条）：
+- AI领域（前5条）：大模型、AI产品发布、AI公司融资、AI研究突破、AI应用等
+- 科技动态（接下来5条）：手机、电脑、互联网产品、科技公司动态、新能源车等
+- 财经要闻（最后5条）：股市、融资、并购、财报、能源、大宗商品等
+
+示例格式：
+阿里云发布通义千问3.5大模型，性能提升30%
+苹果iPhone16销量突破千万台，创新功能受追捧
+宁德时代发布2025年财报，净利润同比增长18.7%
+
+请直接输出 {per_category * 3} 条新闻标题，每行一条："""
+
+    result = call_llm_api(prompt, max_tokens=1200)
+    if not result:
+        log("AI 生成补充新闻失败")
+        return []
+
+    # 解析标题
+    titles = [line.strip() for line in result.strip().split('\n') if line.strip()]
+    titles = [re.sub(r'^\d+[.、]\s*', '', title).strip() for title in titles]
+
+    # 转换为新闻格式（按顺序分类，前5条AI，中间5条科技，最后5条财经）
+    news_items = []
+    sources = ["AI补充生成", "科技补充生成", "财经补充生成"]
+
+    for i, title in enumerate(titles[:target_count]):
+        if len(title) < 8:
+            continue
+
+        # 按位置分配类别
+        if i < per_category:
+            source = sources[0]  # AI领域
+        elif i < per_category * 2:
+            source = sources[1]  # 科技动态
+        else:
+            source = sources[2]  # 财经要闻
+
+        news_items.append({
+            "title": title,
+            "summary": "",
+            "link": "",
+            "published": today.strftime("%a, %d %b %Y %H:%M:%S +0800"),
+            "source": source,
+            "parsed_time": today.strftime("%Y-%m-%d %H:%M:%S"),
+            "rss_source": source
+        })
+
+    log(f"AI 补充生成 {len(news_items)} 条新闻")
+    return news_items
+
+
+def generate_category_supplement_news(category: str, count: int) -> List[Dict]:
+    """针对特定类别生成补充新闻
+
+    Args:
+        category: 类别名称（AI领域/科技动态/财经要闻）
+        count: 需要补充的数量
+
+    Returns:
+        补充的新闻列表
+    """
+    log(f"针对 {category} 类别补充 {count} 条新闻...")
+
+    today = datetime.now()
+    today_str = today.strftime("%Y年%m月%d日")
+
+    # 根据类别设置不同的 prompt
+    category_prompts = {
+        "AI领域": """请生成今天的AI领域真实新闻标题。
+
+要求：
+1. 生成 {count} 条新闻标题
+2. 每条标题必须是真实的、有具体事件的新闻
+3. 格式：每行一个标题，不要序号
+4. 严格控制在 20-50 字之间
+5. 聚焦：AI大模型发布、AI公司融资、AI研究突破、AI产品发布、AI应用落地等
+
+示例：
+OpenAI发布GPT-4.5大模型，多模态理解能力提升47%
+英伟达新一代AI芯片发布，算力提升3倍
+ Anthropic完成新一轮融资，估值达150亿美元
+
+请直接输出 {count} 条新闻标题：""",
+
+        "科技动态": """请生成今天的科技领域（非AI）真实新闻标题。
+
+要求：
+1. 生成 {count} 条新闻标题
+2. 每条标题必须是真实的、有具体事件的科技新闻
+3. 格式：每行一个标题，不要序号
+4. 严格控制在 20-50 字之间
+5. 聚焦：手机、电脑、新能源车（不含AI的）、互联网产品、硬件发布、科技公司动态、游戏、航天等
+
+示例：
+特斯拉Model 3焕新版开启预售，三天订单突破8万辆
+苹果发布M4芯片MacBook Air，续航提升6小时
+小米14 Ultra正式开售，影像系统全面升级
+
+请直接输出 {count} 条新闻标题：""",
+
+        "财经要闻": """请生成今天的财经领域真实新闻标题。
+
+要求：
+1. 生成 {count} 条新闻标题
+2. 每条标题必须是真实的、有具体事件的财经新闻
+3. 格式：每行一个标题，不要序号
+4. 严格控制在 20-50 字之间
+5. 聚焦：股市、融资、并购、财报、能源、大宗商品、货币政策、经济数据等
+
+示例：
+宁德时代发布2025年财报，净利润同比增长18.7%
+抖音集团完成对Pico全资收购，估值约135亿美元
+国际油价大幅下跌，全球能源市场震荡
+
+请直接输出 {count} 条新闻标题："""
+    }
+
+    prompt = category_prompts.get(category, category_prompts["科技动态"]).format(count=count)
+
+    result = call_llm_api(prompt, max_tokens=800)
+    if not result:
+        log(f"AI 生成 {category} 补充新闻失败")
+        return []
+
+    # 解析标题
+    titles = [line.strip() for line in result.strip().split('\n') if line.strip()]
+    titles = [re.sub(r'^\d+[.、]\s*', '', title).strip() for title in titles]
+
+    # 转换为新闻格式
+    news_items = []
+    source_map = {
+        "AI领域": "AI补充生成",
+        "科技动态": "科技补充生成",
+        "财经要闻": "财经补充生成"
+    }
+    source = source_map.get(category, "科技补充生成")
+
+    for title in titles[:count]:
+        if len(title) < 8:
+            continue
+
+        news_items.append({
+            "title": title,
+            "summary": "",
+            "link": "",
+            "published": today.strftime("%a, %d %b %Y %H:%M:%S +0800"),
+            "source": source,
+            "parsed_time": today.strftime("%Y-%m-%d %H:%M:%S"),
+            "rss_source": source
+        })
+
+    log(f"为 {category} 补充生成 {len(news_items)} 条新闻")
+    return news_items
 
 def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
     """使用 AI 将新闻分类到 3 个类别"""
@@ -280,9 +603,14 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
 {news_text}
 
 分类标准（严格区分，不得交叉）：
-- **AI 领域**: 仅限人工智能核心技术 - 大模型、LLM、机器学习、深度学习、NLP、CV、AI训练/推理、AI芯片、AI应用、AI研究论文等。注意：普通机器人、智能硬件如与AI无关则归入科技动态
-- **科技动态**: 非AI的科技内容 - 智能手机、电脑硬件、通用芯片、互联网产品、软件工程、游戏、新能源车、航天、5G/6G、物联网、创业公司、产品发布、科技企业动态等。注意：不包含AI相关内容
-- **财经要闻**: 金融经济类 - 股市、经济政策、货币政策、融资、并购、IPO、金融监管、宏观经济、企业财报、行业投资等
+- **AI 领域**: 仅限人工智能核心技术 - 大模型、LLM、机器学习、深度学习、NLP、CV、AI训练/推理、AI芯片、AI应用（注意：必须是真正使用AI技术的产品/服务）、AI研究论文、OpenAI、Google DeepMind、Anthropic、Meta AI、xAI等AI公司动态等。**汽车电动化/自动驾驶如果与AI无关则归入科技动态**
+- **科技动态**: 非AI的科技内容 - 智能手机、电脑硬件、通用芯片、互联网产品、软件工程、游戏、新能源车（注意：汽车行业新闻如果与AI无关）、航天、5G/6G、物联网、创业公司、产品发布、科技企业动态等。**不包括任何AI相关内容**
+- **财经要闻**: 金融经济类 - 股市、基金、债券、经济政策、货币政策、融资、并购、IPO、金融监管、宏观经济、企业财报、行业投资、**石油、天然气、能源、大宗商品**等。**特别注意：石油增产、能源价格、产油国等绝对不能归入AI领域或科技动态**
+
+重要排除规则：
+1. **石油、能源、大宗商品、货币政策、经济数据**等财经新闻，**必须归入财经要闻**，即使标题中出现了"AI"或"科技"也不改变分类
+2. 标题中出现的公司/产品名不改变其本质分类，例如"某石油公司发布AI产品"应归入财经要闻（因为本质是石油公司新闻）
+3. 春节红包、春晚、节假日促销等泛流量内容，如果没有AI/科技/财经核心内容，应该排除
 
 请按以下 JSON 格式输出（只输出 JSON，不要其他文字）：
 {{
@@ -293,8 +621,9 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
 
 注意：
 1. **严格区分AI领域和科技动态**，AI相关必须归入AI领域，非AI科技归入科技动态，不得混淆或交叉
-2. 每个类别选择最重要的 5 条
-3. 输出纯 JSON 格式"""
+2. **财经要闻必须包含真正的财经/金融/经济新闻**，石油、能源、大宗商品等必须归入财经
+3. 每个类别选择最重要的 5 条，如果某个类别新闻不足5条，可以少于5条
+4. 输出纯 JSON 格式"""
 
     result = call_llm_api(prompt, max_tokens=2000)
     if not result:
@@ -364,13 +693,20 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
 {titles_text}
 
 要求：
-1. **严格控制字数**：每个标题必须在 40-50 字之间（含标点符号）
+1. **严格控制字数**：每个标题必须在 35-50 字之间（含标点符号）
 2. **合理使用标点**：使用逗号、顿号等标点符号分隔信息，符合中文新闻标题规范
 3. **内容丰富饱满**：包含核心事件、关键细节、背景信息、影响或意义
 4. **信息完整**：回答"谁做了什么""为什么重要""产生什么影响"
 5. **语言简洁有力**：信息量大但不冗长，使用精准的专业术语
 6. **风格统一**：保持新闻报道的专业性，突出亮点和价值
 7. **顺序对应**：按原顺序输出，每行一个标题
+
+**严格禁止**：
+- 禁止将不同新闻的内容混合到一个标题中
+- 禁止添加原标题中没有的信息
+- 禁止使用"本文"、"本文梳理"等无意义开头
+- 禁止使用"一文带你"、"一张图看懂"等引导性短语作为标题开头
+- 标题必须描述一个具体的事件或动态，不能是泛泛而谈
 
 示例：
 原标题：除夕迎「源神」？Qwen3.5以小胜大，捅破性价比天花板，大模型竞赛下半场开始了
@@ -388,25 +724,40 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
 
     # 去掉可能的序号
     cleaned_titles = []
+    invalid_count = 0
     for title in optimized_titles:
         # 移除可能的序号格式：1. 或 1、
         title = re.sub(r'^\d+[.、]\s*', '', title)
-        cleaned_titles.append(title.strip())
+        title = title.strip()
+
+        # 安全检查：验证标题是否有效
+        if not is_valid_news_title(title):
+            log(f"  警告：AI生成的标题无效，已过滤: {title[:30]}...")
+            invalid_count += 1
+            continue
+
+        cleaned_titles.append(title)
+
+    # 如果有无效标题，只使用有效的
+    if invalid_count > 0:
+        log(f"已过滤 {invalid_count} 条AI生成的无效标题")
 
     # 更新标题
-    if len(cleaned_titles) == len(all_titles):
+    if len(cleaned_titles) >= len(all_titles):
         title_index = 0
         for category, items in categorized.items():
             for item in items:
                 if title_index < len(cleaned_titles):
                     old_title = item.get('title', '')
                     new_title = cleaned_titles[title_index]
-                    item['title'] = new_title
-                    log(f"  标题优化: {len(old_title)}字 → {len(new_title)}字")
+                    # 只有当新标题有效时才更新
+                    if is_valid_news_title(new_title):
+                        item['title'] = new_title
+                        log(f"  标题优化: {len(old_title)}字 → {len(new_title)}字")
                     title_index += 1
         log("标题规范化完成")
     else:
-        log(f"标题数量不匹配（原{len(all_titles)}条，优化{len(cleaned_titles)}条），使用原标题")
+        log(f"有效标题数量不足（原{len(all_titles)}条，有效{len(cleaned_titles)}条），使用原标题")
 
     return categorized
 
@@ -620,10 +971,66 @@ def main():
     # 1. 收集所有 RSS 新闻
     all_news = collect_all_news()
 
+    # 1.5 如果 RSS 新闻不足 15 条，使用 AI 补充
+    if len(all_news) < 15:
+        supplement_news = generate_supplement_news(15 - len(all_news))
+        all_news.extend(supplement_news)
+        log(f"补充后共 {len(all_news)} 条新闻")
+
     # 2. 使用 AI 分类
     categorized_news = classify_news_with_ai(all_news)
 
-    # 2.5 规范化标题长度
+    # 2.4 规范化分类键名称（统一使用无空格的版本）
+    normalized_categorized = {}
+    category_mapping = {
+        "AI 领域": "AI领域",
+        "AI领域": "AI领域",
+        "科技动态": "科技动态",
+        "财经要闻": "财经要闻",
+    }
+
+    for old_key, news_list in categorized_news.items():
+        new_key = category_mapping.get(old_key, old_key)
+        if new_key in normalized_categorized:
+            # 如果已存在，合并列表
+            normalized_categorized[new_key].extend(news_list)
+        else:
+            normalized_categorized[new_key] = news_list
+    categorized_news = normalized_categorized
+    log(f"分类规范化后: {list(categorized_news.keys())}")
+
+    # 2.5 检查每个类别是否达到 5 条，不足则补充
+    target_count = 5
+    categories = ["AI领域", "科技动态", "财经要闻"]
+
+    for category in categories:
+        current_count = len(categorized_news.get(category, []))
+        if current_count < target_count:
+            need_count = target_count - current_count
+            log(f"{category} 当前 {current_count} 条，需要补充 {need_count} 条")
+            supplement = generate_category_supplement_news(category, need_count)
+            if supplement:
+                # 将补充的新闻添加到对应类别
+                if category not in categorized_news:
+                    categorized_news[category] = []
+                categorized_news[category].extend(supplement)
+                # 同时添加到 all_news 以便后续保存
+                all_news.extend(supplement)
+                log(f"{category} 补充后共 {len(categorized_news[category])} 条")
+
+    # 2.55 最终分类清理：确保只有3个标准分类
+    final_categories = ["AI领域", "科技动态", "财经要闻"]
+    cleaned_categorized = {}
+    for cat in final_categories:
+        if cat in categorized_news:
+            cleaned_categorized[cat] = categorized_news[cat]
+        # 也检查带空格版本
+        elif "AI 领域" in cat:
+            cleaned_categorized["AI领域"] = categorized_news.get("AI 领域", [])
+    categorized_news = cleaned_categorized
+    log(f"最终分类: {list(categorized_news.keys())}")
+
+    # 2.6 规范化标题长度
     categorized_news = normalize_titles(categorized_news)
 
     # 3. 格式化为 HTML（同时生成智能摘要）
