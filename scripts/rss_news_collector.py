@@ -804,19 +804,19 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
 
     # 定义分类颜色、渐变和emoji
     category_colors = {
-        "AI 领域": "#4a90e2",
+        "AI领域": "#4a90e2",
         "科技动态": "#e91e63",
         "财经要闻": "#ff9800"
     }
 
     category_gradients = {
-        "AI 领域": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        "AI领域": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
         "科技动态": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
         "财经要闻": "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
     }
 
     category_emojis = {
-        "AI 领域": "🤖",
+        "AI领域": "🤖",
         "科技动态": "📱",
         "财经要闻": "💰"
     }
