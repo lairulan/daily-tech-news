@@ -638,13 +638,48 @@ def main():
         log("=" * 50)
         sys.exit(0)
 
-    # 3. 发布到公众号
+    # 3. 保存文件到本地(在发布前保存,确保有备份)
+    news_file = os.path.join(WORK_DIR, f"news_{yesterday_str}.md")
+    try:
+        with open(news_file, "w", encoding="utf-8") as f:
+            f.write(content)
+        log(f"文件已保存: {news_file}")
+    except Exception as e:
+        log(f"警告:文件保存失败: {e}")
+
+    # 4. 发布到公众号
     log("正在发布到公众号...")
     title = f"{today.month}月{today.day}日AI科技财经日报"
     success = publish_to_wechat(title, content, cover_url)
 
     if success:
         log("发布成功！")
+
+        # 5. Git提交(仅在发布成功后提交)
+        try:
+            import subprocess
+
+            # 配置Git用户信息
+            subprocess.run(["git", "config", "user.name", "GitHub Actions"], check=True, cwd=WORK_DIR)
+            subprocess.run(["git", "config", "user.email", "actions@github.com"], check=True, cwd=WORK_DIR)
+
+            # 添加新文件
+            subprocess.run(["git", "add", f"news_{yesterday_str}.md"], check=True, cwd=WORK_DIR)
+            subprocess.run(["git", "add", f"raw_news_{yesterday_str}.json"], check=False, cwd=WORK_DIR)  # JSON可能不存在
+
+            # 提交
+            commit_msg = f"chore: 自动发布{yesterday.year}年{yesterday.month}月{yesterday.day}日科技日报"
+            subprocess.run(["git", "commit", "-m", commit_msg], check=True, cwd=WORK_DIR)
+
+            # 推送到远程
+            subprocess.run(["git", "push"], check=True, cwd=WORK_DIR)
+
+            log("✅ 文件已提交到Git仓库")
+        except subprocess.CalledProcessError as e:
+            log(f"⚠️ Git提交失败(不影响发布): {e}")
+        except Exception as e:
+            log(f"⚠️ Git操作异常(不影响发布): {e}")
+
         log("任务完成")
         log("=" * 50)
     else:
