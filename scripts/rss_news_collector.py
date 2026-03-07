@@ -263,12 +263,9 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
         # 尝试不同的 RSS/Atom 格式
         item_elements = root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
 
-        # 精确的时间过滤：只收集过去24小时的新闻（严格模式）
-        now = datetime.now()
-        hours_24_ago = now - timedelta(hours=24)  # 过去24小时
-
-        # 记录时间过滤范围用于日志
-        log(f"时间过滤范围: 过去24小时 ({hours_24_ago.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
+        # 精确的时间过滤：只收集过去48小时的新闻（兼容国际源更新频率）
+        now = datetime.now().astimezone()  # 使用 aware datetime，避免时区比较错误
+        hours_24_ago = now - timedelta(hours=48)  # 过去48小时，兼容低频更新的国际源
 
         for elem in item_elements[:limit * 2]:
             item = {}
@@ -356,12 +353,12 @@ def collect_all_news() -> List[Dict]:
     """收集所有 RSS 新闻到一起"""
     all_items = []
 
-    # 计算时间范围用于日志（过去24小时）
-    now = datetime.now()
-    hours_24_ago = now - timedelta(hours=24)
+    # 计算时间范围用于日志（过去48小时，兼容国际源更新频率）
+    now = datetime.now().astimezone()
+    cutoff_time = now - timedelta(hours=48)
 
     log("开始收集 RSS 新闻...")
-    log(f"时间过滤范围: 过去24小时 ({hours_24_ago.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
+    log(f"时间过滤范围: 过去48小时 ({cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
 
     for source in ALL_RSS_SOURCES:
         log(f"  - {source['name']}")

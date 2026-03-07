@@ -1,5 +1,29 @@
 # 版本历史
 
+## v3.2.0 (2026-03-07) 🐛 关键 Bug 修复
+
+### 致命 Bug 修复
+- **时区比较错误修复（0条新闻根因）**: 修复所有 RSS 源返回 0 条的根本原因
+  - 原因：`datetime.now()` 返回无时区 naive datetime，而 `parsedate_to_datetime().astimezone()` 返回有时区 aware datetime，Python 禁止两者比较，抛出 `TypeError` 被静默 `continue` 跳过
+  - 修复：改为 `datetime.now().astimezone()` 确保两端均为 aware datetime
+  - 影响文件：`scripts/rss_news_collector.py`（L267, L361）
+
+### 时间窗口扩展
+- **过滤窗口从 24h 扩展到 48h**：国际 RSS 源（The Verge、Wired、Ars Technica 等）更新频率较低，窗口由 24 小时改为 48 小时，确保不遗漏跨天更新的新闻
+
+### 日志优化
+- **消除日志刷屏**：移除 `fetch_rss_items` 内部每个 RSS 源都打印一次"时间过滤范围"的重复日志，改为只在 `collect_all_news` 中打印一次
+
+### RSS 源优化（2026-03-07）
+- **删除失效源**：极客公园（404）、VentureBeat AI（404）、品玩
+- **新增**：量子位（12条）、华尔街见闻（12条）、Bloomberg Markets（10条）、InfoQ（8条）
+- 总计 16 个有效 RSS 源，覆盖 AI 专项、国内科技、国际科技、财经四类
+
+### 文件清理
+- 删除中文日期格式冗余文件：`news_2026年03月03日.md`、`news_2026年03月06日.md`
+
+---
+
 ## v3.1.0 (2026-01-31) ✨
 
 ### 内容质量优化
