@@ -10,33 +10,45 @@
 RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 → HTML 日报 → 公众号发布
 ```
 
-## RSS 源配置
+## RSS 源配置（2026-03-07 更新）
 
-### AI 领域 (4个源)
+### AI 专项源 (2个源)
 
-| 媒体 | RSS 地址 | 每日获取 |
-|------|----------|----------|
-| 量子位 | https://www.qbitai.com/feed | 8条 |
-| 机器之心 | https://www.jiqizhixin.com/rss | 8条 |
-| TechCrunch AI | https://techcrunch.com/category/artificial-intelligence/feed/ | 5条 |
-| The Verge AI | https://www.theverge.com/rss/ai-artificial-intelligence/index.xml | 5条 |
+| 媒体 | RSS 地址 | 每日获取 | 状态 |
+|------|----------|----------|------|
+| 量子位 | https://www.qbitai.com/feed | 12条 | ✅ |
+| 机器之心 | https://www.jiqizhixin.com/rss | 12条 | ✅ |
 
-### 科技动态 (5个源)
+### 国内科技源 (6个源)
 
-| 媒体 | RSS 地址 | 每日获取 |
-|------|----------|----------|
-| 36氪 | https://36kr.com/feed | 8条 |
-| 虎嗅 | https://www.huxiu.com/rss/0.xml | 8条 |
-| 钛媒体 | https://www.tmtpost.com/rss | 5条 |
-| 爱范儿 | https://www.ifanr.com/feed | 5条 |
-| TechCrunch | https://techcrunch.com/feed/ | 5条 |
+| 媒体 | RSS 地址 | 每日获取 | 状态 |
+|------|----------|----------|------|
+| 36氪 | https://36kr.com/feed | 12条 | ✅ |
+| 虎嗅 | https://www.huxiu.com/rss/0.xml | 10条 | ✅ |
+| 钛媒体 | https://www.tmtpost.com/rss | 10条 | ✅ |
+| 爱范儿 | https://www.ifanr.com/feed | 8条 | ✅ |
+| 少数派 | https://sspai.com/feed | 8条 | ✅ |
+| InfoQ | https://www.infoq.cn/feed | 8条 | ✅ |
+
+### 国际科技源 (5个源)
+
+| 媒体 | RSS 地址 | 每日获取 | 状态 |
+|------|----------|----------|------|
+| TechCrunch | https://techcrunch.com/feed/ | 10条 | ✅ |
+| TechCrunch AI | https://techcrunch.com/category/artificial-intelligence/feed/ | 10条 | ✅ |
+| The Verge | https://www.theverge.com/rss/index.xml | 8条 | ✅ |
+| Wired | https://www.wired.com/feed/rss | 8条 | ✅ |
+| Ars Technica | https://feeds.arstechnica.com/arstechnica/index | 8条 | ✅ |
+| MIT Tech Review | https://www.technologyreview.com/feed/ | 8条 | ✅ |
 
 ### 财经要闻 (2个源)
 
-| 媒体 | RSS 地址 | 每日获取 |
-|------|----------|----------|
-| 华尔街见闻 | https://dedicated.wallstreetcn.com/rss.xml | 10条 |
-| Bloomberg Tech | https://feeds.bloomberg.com/markets/news.rss | 8条 |
+| 媒体 | RSS 地址 | 每日获取 | 状态 |
+|------|----------|----------|------|
+| 华尔街见闻 | https://dedicated.wallstreetcn.com/rss.xml | 12条 | ✅ |
+| Bloomberg Markets | https://feeds.bloomberg.com/markets/news.rss | 10条 | ✅ |
+
+> **已废弃**：极客公园（404）、VentureBeat AI（404）、品玩（解析问题）
 
 ## 文件结构
 

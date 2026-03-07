@@ -205,25 +205,29 @@ if not DOUBAO_API_KEY:
 
 # 确定使用哪个 API
 
-# RSS 源配置（优化后：优先使用从 GitHub Actions 美国服务器能稳定访问的源）
+# RSS 源配置（2026-03-07 优化：删除失效源，恢复量子位/华尔街见闻/Bloomberg，新增InfoQ）
 ALL_RSS_SOURCES = [
-    # 国内源（从美国访问较稳定的）
-    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 15},
-    {"name": "36氪", "url": "https://36kr.com/feed", "limit": 15},
-    {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "limit": 12},
-    {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 12},
-    {"name": "极客公园", "url": "https://www.geekpark.net/feed", "limit": 10},
-    {"name": "爱范儿", "url": "https://www.ifanr.com/feed", "limit": 10},
+    # AI 专项源（高质量，优先级最高）
+    {"name": "量子位", "url": "https://www.qbitai.com/feed", "limit": 12},
+    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 12},
+    # 国内科技源
+    {"name": "36氪", "url": "https://36kr.com/feed", "limit": 12},
+    {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "limit": 10},
+    {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 10},
+    {"name": "爱范儿", "url": "https://www.ifanr.com/feed", "limit": 8},
     {"name": "少数派", "url": "https://sspai.com/feed", "limit": 8},
-    {"name": "品玩", "url": "https://www.pingwest.com/feed", "limit": 10},
-    # 国际源（从美国访问稳定）
-    {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "limit": 12},
-    {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "limit": 12},
-    {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "limit": 10},
+    {"name": "InfoQ", "url": "https://www.infoq.cn/feed", "limit": 8},
+    # 国内财经源
+    {"name": "华尔街见闻", "url": "https://dedicated.wallstreetcn.com/rss.xml", "limit": 12},
+    # 国际 AI/科技源（从美国访问稳定）
+    {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "limit": 10},
+    {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "limit": 10},
+    {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "limit": 8},
     {"name": "Wired", "url": "https://www.wired.com/feed/rss", "limit": 8},
     {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "limit": 8},
     {"name": "MIT Tech Review", "url": "https://www.technologyreview.com/feed/", "limit": 8},
-    {"name": "VentureBeat AI", "url": "https://venturebeat.com/ai/feed/", "limit": 8},
+    # 国际财经源
+    {"name": "Bloomberg Markets", "url": "https://feeds.bloomberg.com/markets/news.rss", "limit": 10},
 ]
 
 # 目标分类
@@ -259,13 +263,12 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
         # 尝试不同的 RSS/Atom 格式
         item_elements = root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
 
-        # 精确的时间过滤：只收集昨天一整天的新闻
+        # 精确的时间过滤：只收集过去24小时的新闻（严格模式）
         now = datetime.now()
-        yesterday_start = datetime(now.year, now.month, now.day) - timedelta(days=1)  # 昨天 00:00:00
-        yesterday_end = datetime(now.year, now.month, now.day) - timedelta(seconds=1)  # 昨天 23:59:59
+        hours_24_ago = now - timedelta(hours=24)  # 过去24小时
 
-        # 备用：如果需要更宽松的时间窗口（过去24小时）
-        cutoff_time = datetime.now() - timedelta(hours=hours_ago)
+        # 记录时间过滤范围用于日志
+        log(f"时间过滤范围: 过去24小时 ({hours_24_ago.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
 
         for elem in item_elements[:limit * 2]:
             item = {}
@@ -320,7 +323,7 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
                     break
             item['source'] = source_text if source_text else '未知来源'
 
-            # 精确的时间检查：只收集昨天的新闻（严格模式）
+            # 精确的时间检查：只收集过去24小时的新闻（严格模式）
             if not item['published']:
                 # 没有发布时间的新闻，跳过以确保内容真实性
                 continue
@@ -330,12 +333,8 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
                 # 转换为本地时区（北京时间）进行比较
                 pub_time_local = pub_time.astimezone()
 
-                # 提取日期部分进行比较（忽略具体时间）
-                pub_date = pub_time_local.date()
-                yesterday_date = yesterday_start.date()
-
-                # 只保留昨天的新闻
-                if pub_date != yesterday_date:
+                # 过去24小时时间检查
+                if pub_time_local < hours_24_ago:
                     continue
 
                 # 记录新闻的发布时间（用于调试）
@@ -357,13 +356,12 @@ def collect_all_news() -> List[Dict]:
     """收集所有 RSS 新闻到一起"""
     all_items = []
 
-    # 计算时间范围用于日志
+    # 计算时间范围用于日志（过去24小时）
     now = datetime.now()
-    yesterday_start = datetime(now.year, now.month, now.day) - timedelta(days=1)
-    yesterday_end = datetime(now.year, now.month, now.day) - timedelta(seconds=1)
+    hours_24_ago = now - timedelta(hours=24)
 
     log("开始收集 RSS 新闻...")
-    log(f"时间过滤范围: {yesterday_start.strftime('%Y-%m-%d %H:%M:%S')} 到 {yesterday_end.strftime('%Y-%m-%d %H:%M:%S')}")
+    log(f"时间过滤范围: 过去24小时 ({hours_24_ago.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
 
     for source in ALL_RSS_SOURCES:
         log(f"  - {source['name']}")
@@ -735,7 +733,7 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
 {titles_text}
 
 要求：
-1. **严格控制字数**：每个标题必须在 35-50 字之间（含标点符号）
+1. **严格控制字数**：每个标题必须在 38-45 字之间（含标点符号），确保长度均匀
 2. **合理使用标点**：使用逗号、顿号等标点符号分隔信息，符合中文新闻标题规范
 3. **内容丰富饱满**：包含核心事件、关键细节、背景信息、影响或意义
 4. **信息完整**：回答"谁做了什么""为什么重要""产生什么影响"
@@ -854,9 +852,9 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
     }
 
     category_gradients = {
-        "AI领域": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-        "科技动态": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
-        "财经要闻": "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
+        "AI领域": "linear-gradient(135deg, #4A6CF7 0%, #8B5CF6 100%)",
+        "科技动态": "linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)",
+        "财经要闻": "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)"
     }
 
     category_emojis = {
@@ -887,8 +885,8 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
                 title = title + '。'
             # 最后一条新闻的 margin-bottom 为 0
             margin_style = "margin: 0 0 15px 0" if i < len(items) else "margin: 0 0 0 0"
-            # 编号右边加一个小竖线装饰
-            news_html += f'  <p style="{margin_style}; line-height: 2; color: #333; font-size: 15px;"><span style="color: {color}; font-weight: bold; margin-right: 10px; padding-right: 10px; border-right: 3px solid {color};">{i:02d}</span>{title}</p>\n'
+            # 序号使用圆形背景 + 白色数字（跟随板块颜色）
+            news_html += f'  <p style="{margin_style}; line-height: 2; color: #333; font-size: 15px;"><span style="display: inline-block; min-width: 24px; height: 24px; background: {color}; color: #fff; font-weight: bold; font-size: 13px; text-align: center; line-height: 24px; border-radius: 50%; margin-right: 12px;">{i:02d}</span>{title}</p>\n'
 
         news_html += '</div>\n'
         news_html += '</section>\n\n'
