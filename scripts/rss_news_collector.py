@@ -165,12 +165,12 @@ def is_valid_news_title(title: str) -> bool:
 
     # 检查标题是否包含新闻要素（至少包含以下之一）
     news_elements = [
-        "发布", "推出", "推出", "上线", "融资", "投资", "收购", "并购",
+        "发布", "推出", "上线", "融资", "投资", "收购", "并购",
         "获得", "完成", "宣布", "召开", "举行", "成立", "上市",
         "产品", "服务", "公司", "企业", "机构", "平台",
         "技术", "研究", "开发", "实现", "突破", "创新",
         "市场", "行业", "领域", "全球", "中国", "美国", "欧洲",
-        "AI", "大模型", "模型", "模型", "算法", "芯片", "GPU",
+        "AI", "大模型", "模型", "算法", "芯片", "GPU",
         "净利润", "营收", "财报", "利润", "销售额",
     ]
 
@@ -197,14 +197,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
-# 检查 API Key - 优先使用 OpenRouter（GitHub Actions 更稳定），备用豆包
+# 检查 API Key
 if not DOUBAO_API_KEY:
     print("错误: 未设置 DOUBAO_API_KEY 环境变量")
     print("请运行: export DOUBAO_API_KEY='your-api-key'")
-    print("或者: export DOUBAO_API_KEY='your-api-key'")
     sys.exit(1)
-
-# 确定使用哪个 API
 
 # RSS 源配置（2026-03-07 扩展：48 个源，AI 13个 + 国内科技 11个 + 国际科技 12个 + 财经 12个）
 ALL_RSS_SOURCES = [
@@ -290,7 +287,6 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
 
         # RSS 格式：//rss/channel/item 或 //feed/entry
         items = []
-        namespaces = {'': ''}  # 可以根据需要添加命名空间
 
         # 尝试不同的 RSS/Atom 格式
         item_elements = root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
@@ -517,7 +513,6 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
 
     # 收集所有标题
     all_titles = []
-    title_mapping = {}  # 用于映射原标题到新标题
 
     for category, items in categorized.items():
         for item in items:
@@ -807,9 +802,6 @@ def main():
     today = datetime.now()
     today_display_str = today.strftime("%Y年%m月%d日")
     today_str = today.strftime("%Y%m%d")
-
-    # 计算昨天日期（用于新闻收集时间范围）
-    yesterday = today - timedelta(days=1)
 
     # 计算农历和星期（使用今天）
     lunar_date = get_traditional_lunar_date(today)

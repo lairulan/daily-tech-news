@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-每日科技新闻自动收集和发布脚本 V3.0
+每日科技新闻自动收集和发布脚本 V4.0
 每天 8:00 自动运行，收集前一天的 AI/科技/财经新闻并发布到公众号
 
-新增功能：
+特性：
+- 纯 RSS 模式，48 个源，100% 真实新闻
 - 环境预检查 (--check-env)
 - 试运行模式 (--dry-run)
 - 环境变量配置 AppID (WECHAT_APP_ID)
@@ -33,8 +34,6 @@ WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 # 从环境变量读取 AppID，默认使用三更AI
 APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")
-
-# 确定使用哪个 API（优先 OpenRouter）
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -244,7 +243,7 @@ def call_doubao_api(prompt, max_tokens=2000):
     }
 
     payload = {
-        "model": "doubao-seed-1-6-lite-251015",
+        "model": "doubao-seed-2-0-lite-260215",
         "messages": [
             {"role": "user", "content": prompt}
         ],
@@ -319,7 +318,6 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
         html_content = html_content.replace(old_date_card, new_date_card)
 
         # 更新日期卡片中的文字颜色为白色
-        import re
         # 替换日期卡片内的颜色
         html_content = re.sub(
             r'<p style="margin: 0; font-size: 14px; color: #666;',
@@ -348,98 +346,6 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
     except Exception as e:
         log(f"RSS 收集异常: {type(e).__name__}: {e}")
         return None
-
-def generate_news_html(yesterday_str, today_lunar, today_weekday, today_date):
-    """生成新闻 HTML 内容（备用方案，如果 RSS 失败则使用）
-
-    Args:
-        yesterday_str: 昨天的日期字符串（用于新闻内容）
-        today_lunar: 今天的农历日期
-        today_weekday: 今天的星期
-        today_date: 今天的公历日期
-    """
-    prompt = f"""请生成{yesterday_str}的AI科技财经日报。
-
-重要说明：
-1. 日期卡片显示的是今天（{today_date}）的日期信息
-2. 新闻内容是昨天（{yesterday_str}）发生的事情
-3. 严格按照以下格式输出，只输出HTML代码
-
-<section style="padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif; background: #f8f9fa;">
-
-<!-- 日期卡片 - 显示今天的日期 -->
-<section style="text-align: center; padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; margin-bottom: 30px; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);">
-<p style="margin: 0; font-size: 13px; color: rgba(255,255,255,0.8); letter-spacing: 1px;">{today_lunar}</p>
-<p style="margin: 10px 0; font-size: 28px; font-weight: bold; color: #fff; letter-spacing: 4px;">{today_weekday}</p>
-<p style="margin: 0; font-size: 14px; color: rgba(255,255,255,0.9);">{today_date}</p>
-</section>
-
-<!-- AI 领域 -->
-<section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-<p style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">📱 AI 领域</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">01</span>AI新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">02</span>AI新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">03</span>AI新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">04</span>AI新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #667eea; font-weight: bold; margin-right: 10px;">05</span>AI新闻5</p>
-</div>
-</section>
-
-<!-- 科技动态 -->
-<section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-<p style="display: inline-block; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(245, 87, 108, 0.3);">💻 科技动态</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">01</span>科技新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">02</span>科技新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">03</span>科技新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">04</span>科技新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #f5576c; font-weight: bold; margin-right: 10px;">05</span>科技新闻5</p>
-</div>
-</section>
-
-<!-- 财经要闻 -->
-<section style="margin-bottom: 25px; background: #fff; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-<p style="display: inline-block; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; font-size: 18px; font-weight: bold; padding: 10px 25px; border-radius: 25px; margin: 0 0 20px 0; box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);">💰 财经要闻</p>
-<div style="padding: 0 10px;">
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">01</span>财经新闻1</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">02</span>财经新闻2</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">03</span>财经新闻3</p>
-<p style="margin: 0 0 15px 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">04</span>财经新闻4</p>
-<p style="margin: 0 0 0 0; line-height: 2; color: #333; font-size: 15px; "><span style="color: #4facfe; font-weight: bold; margin-right: 10px;">05</span>财经新闻5</p>
-</div>
-</section>
-
-<!-- 微语 -->
-<section style="margin-top: 30px; padding: 25px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 15px; box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);">
-<p style="margin: 0 0 12px 0; font-size: 16px; font-weight: bold; color: #fff; letter-spacing: 2px;">【 微 语 】</p>
-<p style="margin: 0; color: #fff; font-size: 15px; line-height: 1.8; text-align: justify;">一句关于技术、创新或人生的励志语录...</p>
-</section>
-
-</section>
-
-要求：
-1. 每个类别5条新闻，共15条
-2. 新闻要真实、重要、最新
-3. 每条新闻1-2句话，简洁明了
-4. 微语要励志、有深度
-5. 只输出HTML代码，不要其他文字"""
-
-    content = call_llm_api(prompt, max_tokens=3000)
-
-    # 清理markdown代码块标记
-    if content:
-        content = content.strip()
-        # 移除开头的 ```html 或 ```
-        if content.startswith("```html"):
-            content = content[7:].strip()
-        elif content.startswith("```"):
-            content = content[3:].strip()
-        # 移除结尾的 ```
-        if content.endswith("```"):
-            content = content[:-3].strip()
-
-    return content
 
 def generate_cover_image(title):
     """生成封面图"""
@@ -549,7 +455,7 @@ def publish_to_wechat(title, content, cover_url):
 def main():
     """主函数"""
     # 解析命令行参数
-    parser = argparse.ArgumentParser(description="每日科技新闻自动收集和发布脚本 V3.0")
+    parser = argparse.ArgumentParser(description="每日科技新闻自动收集和发布脚本 V4.0")
     parser.add_argument("--check-env", action="store_true", help="仅检查环境依赖")
     parser.add_argument("--dry-run", action="store_true", help="试运行（不发布）")
     parser.add_argument("--appid", type=str, help="指定公众号 AppID")
@@ -572,7 +478,7 @@ def main():
         log(f"使用指定的 AppID: {APPID}")
 
     log("=" * 50)
-    log("开始执行每日新闻收集任务 V3.0")
+    log("开始执行每日新闻收集任务 V4.0")
     log(f"工作目录: {WORK_DIR}")
     log(f"脚本目录: {SCRIPT_DIR}")
     if args.dry_run:
@@ -639,7 +545,8 @@ def main():
         sys.exit(0)
 
     # 3. 保存文件到本地(在发布前保存,确保有备份)
-    news_file = os.path.join(WORK_DIR, f"news_{yesterday_str}.md")
+    today_str = today.strftime("%Y%m%d")
+    news_file = os.path.join(WORK_DIR, f"news_{today_str}.md")
     try:
         with open(news_file, "w", encoding="utf-8") as f:
             f.write(content)
@@ -657,18 +564,16 @@ def main():
 
         # 5. Git提交(仅在发布成功后提交)
         try:
-            import subprocess
-
             # 配置Git用户信息
             subprocess.run(["git", "config", "user.name", "GitHub Actions"], check=True, cwd=WORK_DIR)
             subprocess.run(["git", "config", "user.email", "actions@github.com"], check=True, cwd=WORK_DIR)
 
-            # 添加新文件
-            subprocess.run(["git", "add", f"news_{yesterday_str}.md"], check=True, cwd=WORK_DIR)
-            subprocess.run(["git", "add", f"raw_news_{yesterday_str}.json"], check=False, cwd=WORK_DIR)  # JSON可能不存在
+            # 添加新文件（使用与 rss_news_collector 一致的 today_str 格式）
+            subprocess.run(["git", "add", f"news_{today_str}.md"], check=True, cwd=WORK_DIR)
+            subprocess.run(["git", "add", f"raw_news_{today_str}.json"], check=False, cwd=WORK_DIR)  # JSON可能不存在
 
             # 提交
-            commit_msg = f"chore: 自动发布{yesterday.year}年{yesterday.month}月{yesterday.day}日科技日报"
+            commit_msg = f"chore: 自动发布{today.year}年{today.month}月{today.day}日科技日报"
             subprocess.run(["git", "commit", "-m", commit_msg], check=True, cwd=WORK_DIR)
 
             # 推送到远程
