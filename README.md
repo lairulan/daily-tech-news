@@ -10,16 +10,27 @@
 RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 → HTML 日报 → 公众号发布
 ```
 
-## RSS 源配置（2026-03-07 更新）
+## RSS 源配置（2026-03-07 扩展，48个源）
 
-### AI 专项源 (2个源)
+### AI 专项源 (13个源)
 
 | 媒体 | RSS 地址 | 每日获取 | 状态 |
 |------|----------|----------|------|
 | 量子位 | https://www.qbitai.com/feed | 12条 | ✅ |
 | 机器之心 | https://www.jiqizhixin.com/rss | 12条 | ✅ |
+| OpenAI Blog | https://openai.com/blog/rss.xml | 8条 | ✅ |
+| Hugging Face Blog | https://huggingface.co/blog/feed.xml | 8条 | ✅ |
+| AI News | https://www.artificialintelligence-news.com/feed/ | 8条 | ✅ |
+| Google DeepMind | https://deepmind.google/blog/rss.xml | 8条 | ✅ |
+| Google Research | https://research.google/blog/rss | 8条 | ✅ |
+| Microsoft Research | https://www.microsoft.com/en-us/research/blog/feed/ | 8条 | ✅ |
+| NVIDIA Blog | https://blogs.nvidia.com/feed/ | 8条 | ✅ |
+| VentureBeat AI | https://venturebeat.com/category/ai/feed/ | 8条 | ✅ |
+| MIT News AI | https://news.mit.edu/rss/topic/artificial-intelligence2 | 8条 | ✅ |
+| KDnuggets | https://www.kdnuggets.com/feed | 8条 | ✅ |
+| Analytics Vidhya | https://www.analyticsvidhya.com/feed/ | 8条 | ✅ |
 
-### 国内科技源 (6个源)
+### 国内科技源 (11个源)
 
 | 媒体 | RSS 地址 | 每日获取 | 状态 |
 |------|----------|----------|------|
@@ -29,8 +40,13 @@ RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 
 | 爱范儿 | https://www.ifanr.com/feed | 8条 | ✅ |
 | 少数派 | https://sspai.com/feed | 8条 | ✅ |
 | InfoQ | https://www.infoq.cn/feed | 8条 | ✅ |
+| IT之家 | https://www.ithome.com/rss/ | 10条 | ✅ |
+| 雷峰网 | https://www.leiphone.com/feed | 8条 | ✅ |
+| 动点科技 | https://cn.technode.com/feed/ | 8条 | ✅ |
+| OSCHINA | https://www.oschina.net/news/rss | 8条 | ✅ |
+| cnBeta | https://www.cnbeta.com.tw/backend.php | 10条 | ✅ |
 
-### 国际科技源 (5个源)
+### 国际科技源 (12个源)
 
 | 媒体 | RSS 地址 | 每日获取 | 状态 |
 |------|----------|----------|------|
@@ -40,15 +56,31 @@ RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 
 | Wired | https://www.wired.com/feed/rss | 8条 | ✅ |
 | Ars Technica | https://feeds.arstechnica.com/arstechnica/index | 8条 | ✅ |
 | MIT Tech Review | https://www.technologyreview.com/feed/ | 8条 | ✅ |
+| Engadget | https://www.engadget.com/rss.xml | 8条 | ✅ |
+| ZDNet | https://www.zdnet.com/news/rss.xml | 8条 | ✅ |
+| The Register | https://www.theregister.com/headlines.atom | 8条 | ✅ |
+| 9to5Mac | https://9to5mac.com/feed/ | 8条 | ✅ |
+| Android Authority | https://www.androidauthority.com/feed/ | 8条 | ✅ |
+| Hacker News Best | https://hnrss.org/best | 8条 | ✅ |
 
-### 财经要闻 (2个源)
+### 财经要闻 (12个源)
 
 | 媒体 | RSS 地址 | 每日获取 | 状态 |
 |------|----------|----------|------|
 | 华尔街见闻 | https://dedicated.wallstreetcn.com/rss.xml | 12条 | ✅ |
 | Bloomberg Markets | https://feeds.bloomberg.com/markets/news.rss | 10条 | ✅ |
+| CNBC | https://www.cnbc.com/id/100003114/device/rss/rss.html | 8条 | ✅ |
+| MarketWatch | https://feeds.marketwatch.com/marketwatch/topstories/ | 8条 | ✅ |
+| Yahoo Finance | https://finance.yahoo.com/news/rssindex | 8条 | ✅ |
+| Financial Times | https://www.ft.com/rss/home | 8条 | ✅ |
+| FT Markets | https://www.ft.com/markets?format=rss | 8条 | ✅ |
+| Seeking Alpha | https://seekingalpha.com/feed.xml | 8条 | ✅ |
+| The Economist | https://www.economist.com/finance-and-economics/rss.xml | 8条 | ✅ |
+| Forbes Business | https://www.forbes.com/business/feed2 | 8条 | ✅ |
+| Business Insider | https://feeds.businessinsider.com/custom/all | 8条 | ✅ |
+| CoinDesk | https://www.coindesk.com/arc/outboundfeeds/rss/ | 8条 | ✅ |
 
-> **已废弃**：极客公园（404）、VentureBeat AI（404）、品玩（解析问题）
+> **已废弃**：极客公园（404）、VentureBeat AI（404）、品玩（解析问题）、Google AI Blog（SSL超时）、DeepLearning.AI（404）、财新（403）、第一财经（403）、新浪财经（无效XML）、Reuters（404）
 
 ## 文件结构
 

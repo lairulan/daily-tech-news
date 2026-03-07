@@ -1,11 +1,11 @@
 name: 每日科技新闻
 
 on:
-  # 定时触发已迁移到 Cloudflare Workers，确保精确执行
-  # 原 schedule: cron: '30 0 * * *' (每天 8:30 北京时间)
-  # 现在通过 Cloudflare Workers Cron Triggers 调用 repository_dispatch
+  # GitHub Actions 自带定时触发（UTC 00:30 = 北京时间 08:30）
+  schedule:
+    - cron: '30 0 * * *'
 
-  # Cloudflare Workers 触发
+  # Cloudflare Workers 触发（作为备份双保险）
   repository_dispatch:
     types: [daily-tech-news]
 

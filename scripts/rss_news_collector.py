@@ -205,29 +205,60 @@ if not DOUBAO_API_KEY:
 
 # 确定使用哪个 API
 
-# RSS 源配置（2026-03-07 优化：删除失效源，恢复量子位/华尔街见闻/Bloomberg，新增InfoQ）
+# RSS 源配置（2026-03-07 扩展：48 个源，AI 13个 + 国内科技 11个 + 国际科技 12个 + 财经 12个）
 ALL_RSS_SOURCES = [
-    # AI 专项源（高质量，优先级最高）
+    # === AI 专项源（13个） ===
     {"name": "量子位", "url": "https://www.qbitai.com/feed", "limit": 12},
     {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 12},
-    # 国内科技源
+    {"name": "OpenAI Blog", "url": "https://openai.com/blog/rss.xml", "limit": 8},
+    {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "limit": 8},
+    {"name": "AI News", "url": "https://www.artificialintelligence-news.com/feed/", "limit": 8},
+    {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "limit": 8},
+    {"name": "Google Research", "url": "https://research.google/blog/rss", "limit": 8},
+    {"name": "Microsoft Research", "url": "https://www.microsoft.com/en-us/research/blog/feed/", "limit": 8},
+    {"name": "NVIDIA Blog", "url": "https://blogs.nvidia.com/feed/", "limit": 8},
+    {"name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/", "limit": 8},
+    {"name": "MIT News AI", "url": "https://news.mit.edu/rss/topic/artificial-intelligence2", "limit": 8},
+    {"name": "KDnuggets", "url": "https://www.kdnuggets.com/feed", "limit": 8},
+    {"name": "Analytics Vidhya", "url": "https://www.analyticsvidhya.com/feed/", "limit": 8},
+    # === 国内科技源（11个） ===
     {"name": "36氪", "url": "https://36kr.com/feed", "limit": 12},
     {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "limit": 10},
     {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 10},
     {"name": "爱范儿", "url": "https://www.ifanr.com/feed", "limit": 8},
     {"name": "少数派", "url": "https://sspai.com/feed", "limit": 8},
     {"name": "InfoQ", "url": "https://www.infoq.cn/feed", "limit": 8},
-    # 国内财经源
-    {"name": "华尔街见闻", "url": "https://dedicated.wallstreetcn.com/rss.xml", "limit": 12},
-    # 国际 AI/科技源（从美国访问稳定）
+    {"name": "IT之家", "url": "https://www.ithome.com/rss/", "limit": 10},
+    {"name": "雷峰网", "url": "https://www.leiphone.com/feed", "limit": 8},
+    {"name": "动点科技", "url": "https://cn.technode.com/feed/", "limit": 8},
+    {"name": "OSCHINA", "url": "https://www.oschina.net/news/rss", "limit": 8},
+    {"name": "cnBeta", "url": "https://www.cnbeta.com.tw/backend.php", "limit": 10},
+    # === 国际科技源（12个） ===
     {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "limit": 10},
     {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "limit": 10},
     {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "limit": 8},
     {"name": "Wired", "url": "https://www.wired.com/feed/rss", "limit": 8},
     {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "limit": 8},
     {"name": "MIT Tech Review", "url": "https://www.technologyreview.com/feed/", "limit": 8},
-    # 国际财经源
+    {"name": "Engadget", "url": "https://www.engadget.com/rss.xml", "limit": 8},
+    {"name": "ZDNet", "url": "https://www.zdnet.com/news/rss.xml", "limit": 8},
+    {"name": "The Register", "url": "https://www.theregister.com/headlines.atom", "limit": 8},
+    {"name": "9to5Mac", "url": "https://9to5mac.com/feed/", "limit": 8},
+    {"name": "Android Authority", "url": "https://www.androidauthority.com/feed/", "limit": 8},
+    {"name": "Hacker News Best", "url": "https://hnrss.org/best", "limit": 8},
+    # === 财经源（12个） ===
+    {"name": "华尔街见闻", "url": "https://dedicated.wallstreetcn.com/rss.xml", "limit": 12},
     {"name": "Bloomberg Markets", "url": "https://feeds.bloomberg.com/markets/news.rss", "limit": 10},
+    {"name": "CNBC", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "limit": 8},
+    {"name": "MarketWatch", "url": "https://feeds.marketwatch.com/marketwatch/topstories/", "limit": 8},
+    {"name": "Yahoo Finance", "url": "https://finance.yahoo.com/news/rssindex", "limit": 8},
+    {"name": "Financial Times", "url": "https://www.ft.com/rss/home", "limit": 8},
+    {"name": "FT Markets", "url": "https://www.ft.com/markets?format=rss", "limit": 8},
+    {"name": "Seeking Alpha", "url": "https://seekingalpha.com/feed.xml", "limit": 8},
+    {"name": "The Economist", "url": "https://www.economist.com/finance-and-economics/rss.xml", "limit": 8},
+    {"name": "Forbes Business", "url": "https://www.forbes.com/business/feed2", "limit": 8},
+    {"name": "Business Insider", "url": "https://feeds.businessinsider.com/custom/all", "limit": 8},
+    {"name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/", "limit": 8},
 ]
 
 # 目标分类
@@ -241,7 +272,7 @@ def log(message):
         f.write(f"[{timestamp}] {message}\n")
     print(message, flush=True)  # 确保输出立即刷新
 
-def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict]:
+def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict]:
     """获取 RSS 条目"""
     try:
         # 设置用户代理
@@ -263,9 +294,9 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 48) -> List[Dict
         # 尝试不同的 RSS/Atom 格式
         item_elements = root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
 
-        # 精确的时间过滤：只收集过去48小时的新闻（兼容国际源更新频率）
+        # 精确的时间过滤：只收集过去24小时的新闻
         now = datetime.now().astimezone()  # 使用 aware datetime，避免时区比较错误
-        hours_24_ago = now - timedelta(hours=48)  # 过去48小时，兼容低频更新的国际源
+        hours_24_ago = now - timedelta(hours=24)  # 过去24小时
 
         for elem in item_elements[:limit * 2]:
             item = {}
@@ -353,12 +384,12 @@ def collect_all_news() -> List[Dict]:
     """收集所有 RSS 新闻到一起"""
     all_items = []
 
-    # 计算时间范围用于日志（过去48小时，兼容国际源更新频率）
+    # 计算时间范围用于日志（过去24小时）
     now = datetime.now().astimezone()
-    cutoff_time = now - timedelta(hours=48)
+    cutoff_time = now - timedelta(hours=24)
 
     log("开始收集 RSS 新闻...")
-    log(f"时间过滤范围: 过去48小时 ({cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
+    log(f"时间过滤范围: 过去24小时 ({cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
 
     for source in ALL_RSS_SOURCES:
         log(f"  - {source['name']}")

@@ -1,5 +1,29 @@
 # 版本历史
 
+## v4.0.0 (2026-03-07) 🚀 纯 RSS 重构 + 48源大扩展
+
+### RSS 源扩展（16 → 48 个源）
+- **AI 专项源**（2→13）：新增 OpenAI Blog、Hugging Face、AI News、Google DeepMind、Google Research、Microsoft Research、NVIDIA Blog、VentureBeat AI、MIT News AI、KDnuggets、Analytics Vidhya
+- **国内科技源**（6→11）：新增 IT之家、雷峰网、动点科技、OSCHINA、cnBeta
+- **国际科技源**（6→12）：新增 Engadget、ZDNet、The Register、9to5Mac、Android Authority、Hacker News Best
+- **财经源**（2→12）：新增 CNBC、MarketWatch、Yahoo Finance、Financial Times、FT Markets、Seeking Alpha、The Economist、Forbes Business、Business Insider、CoinDesk
+- 总计 48 个有效 RSS 源，确保纯 RSS 模式下每日有充足的真实新闻量
+
+### 纯 RSS 模式
+- **移除 AI 补充新闻**：删除 `generate_supplement_news()` 和 `generate_category_supplement_news()` 调用
+- **RSS 数量为 0 时退出**：`sys.exit(1)` 终止任务，不再用 AI 生成假新闻填充
+- 所有发布内容 100% 来自真实 RSS 订阅源
+
+### 时间窗口调整
+- **新闻窗口从 48h 压缩回 24h**：48 个源保证 24h 内有充足新闻量，无需跨天
+
+### 定时发布双保险
+- **恢复 GitHub Actions schedule**：`cron: '30 0 * * *'`（UTC 00:30 = 北京时间 08:30）
+- **保留 Cloudflare Workers**：`repository_dispatch` 作为备份触发
+- 双触发源确保每天必定发布
+
+---
+
 ## v3.2.0 (2026-03-07) 🐛 关键 Bug 修复
 
 ### 致命 Bug 修复
