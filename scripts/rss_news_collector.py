@@ -1010,11 +1010,13 @@ def main():
     # 1. 收集所有 RSS 新闻
     all_news = collect_all_news()
 
-    # 1.5 如果 RSS 新闻不足 15 条，使用 AI 补充
-    if len(all_news) < 15:
-        supplement_news = generate_supplement_news(15 - len(all_news))
-        all_news.extend(supplement_news)
-        log(f"补充后共 {len(all_news)} 条新闻")
+    # 1.5 RSS 新闻数量检查（不使用 AI 补充，确保内容全部来自真实 RSS 源）
+    if len(all_news) == 0:
+        log("❌ RSS 收集结果为 0 条，所有源均无法获取新闻，任务终止")
+        log("请检查网络连接、SSL 证书或 RSS 源可用性")
+        sys.exit(1)
+
+    log(f"✅ 共获取 {len(all_news)} 条真实 RSS 新闻，进入分类流程")
 
     # 2. 使用 AI 分类
     categorized_news = classify_news_with_ai(all_news)
@@ -1038,24 +1040,11 @@ def main():
     categorized_news = normalized_categorized
     log(f"分类规范化后: {list(categorized_news.keys())}")
 
-    # 2.5 检查每个类别是否达到 5 条，不足则补充
-    target_count = 5
+    # 2.5 记录各类别实际数量（不补充，保持全部来自真实 RSS）
     categories = ["AI领域", "科技动态", "财经要闻"]
-
     for category in categories:
-        current_count = len(categorized_news.get(category, []))
-        if current_count < target_count:
-            need_count = target_count - current_count
-            log(f"{category} 当前 {current_count} 条，需要补充 {need_count} 条")
-            supplement = generate_category_supplement_news(category, need_count)
-            if supplement:
-                # 将补充的新闻添加到对应类别
-                if category not in categorized_news:
-                    categorized_news[category] = []
-                categorized_news[category].extend(supplement)
-                # 同时添加到 all_news 以便后续保存
-                all_news.extend(supplement)
-                log(f"{category} 补充后共 {len(categorized_news[category])} 条")
+        count = len(categorized_news.get(category, []))
+        log(f"{category}: {count} 条真实新闻")
 
     # 2.55 最终分类清理：确保只有3个标准分类
     final_categories = ["AI领域", "科技动态", "财经要闻"]
