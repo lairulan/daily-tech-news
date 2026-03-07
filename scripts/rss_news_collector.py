@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-基于 RSS 订阅的新闻收集脚本 V3.0
-使用 Python 内置库解析 RSS，无需额外依赖
+基于 RSS 订阅的新闻收集脚本 V4.0
+纯 RSS 模式，48 个源，24h 时间窗口，100% 真实新闻
 
-新增功能：
+特性：
+- 48 个 RSS 源（AI 13 + 国内科技 11 + 国际科技 12 + 财经 12）
 - 请求速率限制（0.5秒间隔）
 - 使用 certifi 正确验证 SSL 证书
-- 共享工具函数
+- 纯 RSS 模式，不使用 AI 补充新闻
 """
 
 import os
@@ -179,7 +180,7 @@ def is_valid_news_title(title: str) -> bool:
         event_patterns = [
             r"\d+月\d+日",  # 日期
             r"\d+日",  # 某日
-            r"北京", "上海", "深圳", "广州", "杭州",
+            r"北京", r"上海", r"深圳", r"广州", r"杭州",
             r"年度", r"季度", r"月份",
             r"首次", r"第一届", r"第二届",
         ]
@@ -426,230 +427,6 @@ def collect_all_news() -> List[Dict]:
     log(f"收集完成，共获取 {len(unique_items)} 条去重后新闻")
     return unique_items
 
-
-def generate_supplement_news(target_count: int = 15) -> List[Dict]:
-    """使用 AI 生成补充新闻（当 RSS 收集不足时）- 兼容版本
-
-    生成平衡的3类新闻，每类约5条
-
-    Args:
-        target_count: 目标新闻数量
-
-    Returns:
-        补充的新闻列表
-    """
-    log(f"RSS 新闻不足，使用 AI 补充新闻（目标 {target_count} 条）...")
-
-    today = datetime.now()
-    today_str = today.strftime("%Y年%m月%d日")
-
-    # 每类生成5条
-    per_category = 5
-
-    prompt = f"""请生成{today_str}可能发生的AI、科技、财经领域新闻标题。
-
-⚠️ 重要约束：
-1. 所有标题必须是{today_str}前后可能发生的事件
-2. 不要引用具体的历史数据（如股价、汇率、商品价格等）
-3. 避免使用过时的统计数字或时间节点
-4. 如果涉及财经数据，使用"上涨"、"下跌"、"波动"等趋势词，不要写具体数字
-5. 聚焦公司动态、产品发布、政策发布等非数据类事件
-6. **每条新闻只描述一个单一事件**，严禁多条消息合并
-7. **严禁使用"早报"、"本周动态"、"X条动态"等多消息合并形式**
-
-内容要求：
-1. 生成 {per_category * 3} 条新闻标题（AI领域{per_category}条、科技动态{per_category}条、财经要闻{per_category}条）
-2. 每条标题必须有具体的事件、公司名、产品名等
-3. 格式：每行一个标题，不要序号
-4. **严格控制在 30-50 字之间**（不少于30字，不超过50字）
-5. 每条新闻独立成句，信息点单一清晰
-
-分类要求（按顺序每类5条）：
-- AI领域（前5条）：大模型、AI产品发布、AI公司融资、AI研究突破、AI应用等
-- 科技动态（接下来5条）：手机、电脑、互联网产品、科技公司动态、新能源车等
-- 财经要闻（最后5条）：股市、融资、并购、财报、能源、货币政策等（不要具体价格数据）
-
-✅ 推荐示例：
-阿里云发布通义千问3.5大模型，多模态能力全面升级
-苹果正式推出iPhone16系列，相机系统迎来重大革新
-宁德时代发布2025年财报，全年净利润超市场预期
-
-❌ 禁止示例：
-比特币价格突破50000美元关口（具体价格可能过时）
-黄金期货涨至2800美元每盎司（历史数据）
-美联储宣布加息50个基点至4.5%（具体数字可能过时）
-本周出海三动态：中东光伏短期交付受阻，欧盟废除小额包裹免税政策（多条消息合并）
-今日早报：苹果发布新品，vivo新旗舰上市（多条消息合并）
-
-请直接输出 {per_category * 3} 条新闻标题，每行一条："""
-
-    result = call_llm_api(prompt, max_tokens=1200)
-    if not result:
-        log("AI 生成补充新闻失败")
-        return []
-
-    # 解析标题
-    titles = [line.strip() for line in result.strip().split('\n') if line.strip()]
-    titles = [re.sub(r'^\d+[.、]\s*', '', title).strip() for title in titles]
-
-    # 转换为新闻格式（按顺序分类，前5条AI，中间5条科技，最后5条财经）
-    news_items = []
-    sources = ["AI补充生成", "科技补充生成", "财经补充生成"]
-
-    for i, title in enumerate(titles[:target_count]):
-        if len(title) < 8:
-            continue
-
-        # 按位置分配类别
-        if i < per_category:
-            source = sources[0]  # AI领域
-        elif i < per_category * 2:
-            source = sources[1]  # 科技动态
-        else:
-            source = sources[2]  # 财经要闻
-
-        news_items.append({
-            "title": title,
-            "summary": "",
-            "link": "",
-            "published": today.strftime("%a, %d %b %Y %H:%M:%S +0800"),
-            "source": source,
-            "parsed_time": today.strftime("%Y-%m-%d %H:%M:%S"),
-            "rss_source": source
-        })
-
-    log(f"AI 补充生成 {len(news_items)} 条新闻")
-    return news_items
-
-
-def generate_category_supplement_news(category: str, count: int) -> List[Dict]:
-    """针对特定类别生成补充新闻
-
-    Args:
-        category: 类别名称（AI领域/科技动态/财经要闻）
-        count: 需要补充的数量
-
-    Returns:
-        补充的新闻列表
-    """
-    log(f"针对 {category} 类别补充 {count} 条新闻...")
-
-    today = datetime.now()
-    today_str = today.strftime("%Y年%m月%d日")
-
-    # 根据类别设置不同的 prompt
-    category_prompts = {
-        "AI领域": """请生成今天可能发生的AI领域新闻标题。
-
-⚠️ 重要约束：
-1. 所有标题必须是近期可能发生的事件
-2. 聚焦公司动态、产品发布、研究突破等确定性事件
-3. 避免使用可能过时的统计数字或排名
-
-内容要求：
-1. 生成 {count} 条新闻标题
-2. 每条标题有具体公司名、产品名或事件
-3. 格式：每行一个标题，不要序号
-4. **严格控制在 30-50 字之间**（不少于30字，不超过50字）
-5. 每条新闻独立成句，信息点单一清晰
-5. 聚焦：AI大模型发布、AI公司融资、AI研究突破、AI产品发布、AI应用落地等
-
-✅ 推荐示例：
-OpenAI发布全新GPT系列模型，推理能力实现重大突破
-英伟达推出新一代AI芯片，算力大幅提升
-Anthropic完成新一轮融资，加速大模型研发
-
-请直接输出 {count} 条新闻标题：""",
-
-        "科技动态": """请生成今天可能发生的科技领域（非AI）新闻标题。
-
-⚠️ 重要约束：
-1. 所有标题必须是近期可能发生的事件
-2. 聚焦产品发布、公司动态等确定性事件
-3. 避免使用可能过时的销量、市占率等数据
-
-内容要求：
-1. 生成 {count} 条新闻标题
-2. 每条标题有具体公司名、产品名或事件
-3. 格式：每行一个标题，不要序号
-4. **严格控制在 30-50 字之间**（不少于30字，不超过50字）
-5. 每条新闻独立成句，信息点单一清晰
-5. 聚焦：手机、电脑、新能源车、互联网产品、硬件发布、科技公司动态、游戏、航天等
-
-✅ 推荐示例：
-特斯拉正式发布Model 3改款车型，续航能力进一步提升
-苹果推出新一代MacBook Air，搭载最新芯片
-小米发布全新旗舰手机，影像系统全面升级
-
-请直接输出 {count} 条新闻标题：""",
-
-        "财经要闻": """请生成今天可能发生的财经领域新闻标题。
-
-⚠️ 重要约束（严格执行）：
-1. 所有标题必须是近期可能发生的事件
-2. **严禁使用具体价格数据**（如股价、金价、汇率、油价等数字）
-3. **严禁使用具体涨跌幅度数字**（如"涨10%"、"跌200点"）
-4. 如涉及市场波动，使用"上涨"、"下跌"、"波动"、"震荡"等趋势词
-5. 聚焦公司动态、财报发布、政策发布、并购等非价格类事件
-
-内容要求：
-1. 生成 {count} 条新闻标题
-2. 每条标题有具体公司名、事件或政策
-3. 格式：每行一个标题，不要序号
-4. **严格控制在 30-50 字之间**（不少于30字，不超过50字）
-5. 每条新闻独立成句，信息点单一清晰
-5. 聚焦：财报、融资、并购、货币政策、监管政策等
-
-✅ 推荐示例：
-宁德时代发布年度财报，全年业绩超市场预期
-某互联网巨头完成对新兴公司全资收购
-央行宣布新一轮货币政策调整，市场反应积极
-
-❌ 严禁示例：
-黄金价格突破2800美元每盎司（具体价格数据）
-比特币涨至50000美元关口（具体价格）
-美股纳指大跌500点（具体涨跌幅）
-人民币汇率跌破7.2（具体汇率数据）
-
-请直接输出 {count} 条新闻标题："""
-    }
-
-    prompt = category_prompts.get(category, category_prompts["科技动态"]).format(count=count)
-
-    result = call_llm_api(prompt, max_tokens=800)
-    if not result:
-        log(f"AI 生成 {category} 补充新闻失败")
-        return []
-
-    # 解析标题
-    titles = [line.strip() for line in result.strip().split('\n') if line.strip()]
-    titles = [re.sub(r'^\d+[.、]\s*', '', title).strip() for title in titles]
-
-    # 转换为新闻格式
-    news_items = []
-    source_map = {
-        "AI领域": "AI补充生成",
-        "科技动态": "科技补充生成",
-        "财经要闻": "财经补充生成"
-    }
-    source = source_map.get(category, "科技补充生成")
-
-    for title in titles[:count]:
-        if len(title) < 8:
-            continue
-
-        news_items.append({
-            "title": title,
-            "summary": "",
-            "link": "",
-            "published": today.strftime("%a, %d %b %Y %H:%M:%S +0800"),
-            "source": source,
-            "parsed_time": today.strftime("%Y-%m-%d %H:%M:%S"),
-            "rss_source": source
-        })
-
-    log(f"为 {category} 补充生成 {len(news_items)} 条新闻")
-    return news_items
 
 def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
     """使用 AI 将新闻分类到 3 个类别"""

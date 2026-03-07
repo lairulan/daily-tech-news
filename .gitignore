@@ -12,5 +12,8 @@ temp_*.md
 *.pyc
 __pycache__/
 
+# 备份文件
+*.backup
+
 # 环境变量
 .env
