@@ -1,5 +1,33 @@
 # 版本历史
 
+## v4.1.0 (2026-03-08) 🔧 财经源强化 + 分类优化
+
+### 财经 RSS 源强化
+- **新增 3 个中文财经源**（替换 3 个失效国际源）：
+  - 财联社快讯（via RSSHub）
+  - 财新网（via RSSHub）
+  - 金十数据（via RSSHub）
+- **移除 3 个永久失效源**：Financial Times、FT Markets、The Economist（GitHub Actions 环境无法访问）
+- **RSSHub 多实例 fallback 机制**：每个中文财经源配置 3 个备选镜像地址
+  - rsshub.rssforever.com（主）
+  - rsshub.pseudoyu.com（备用1）
+  - rsshub.ktachibana.party（备用2）
+
+### 分类补救机制
+- **新增分类不足自动补救**：当某分类少于 3 条时，从未分类新闻池中补充
+- **AI 分类输入扩容**：从 30 条提升到 40 条，提高分类覆盖率
+
+### AI 分类提示词优化
+- **汽车行业分类规则**：上市/定价→财经，AI自动驾驶→AI，硬件评测→科技
+- **供应链新闻**→财经分类
+- **强调每类必须选满 5 条**
+
+### Fallback URL 采集机制
+- `collect_all_news()` 新增 fallback URL 循环尝试逻辑
+- 主 URL 无结果时自动切换备选镜像，提升采集成功率
+
+---
+
 ## v4.0.0 (2026-03-07) 🚀 纯 RSS 重构 + 48源大扩展
 
 ### RSS 源扩展（16 → 48 个源）
