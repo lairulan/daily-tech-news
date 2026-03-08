@@ -203,7 +203,15 @@ if not DOUBAO_API_KEY:
     print("请运行: export DOUBAO_API_KEY='your-api-key'")
     sys.exit(1)
 
-# RSS 源配置（2026-03-07 扩展：48 个源，AI 13个 + 国内科技 11个 + 国际科技 12个 + 财经 12个）
+# RSSHub 镜像实例列表（用于 fallback）
+RSSHUB_INSTANCES = [
+    "https://rsshub.rssforever.com",
+    "https://rsshub.pseudoyu.com",
+    "https://rsshub.ktachibana.party",
+]
+
+# RSS 源配置（2026-03-08 优化：强化财经源，清理失效源）
+# 每个源可以有 "fallback_urls" 列表，主URL失败时自动尝试备选
 ALL_RSS_SOURCES = [
     # === AI 专项源（13个） ===
     {"name": "量子位", "url": "https://www.qbitai.com/feed", "limit": 12},
@@ -244,16 +252,21 @@ ALL_RSS_SOURCES = [
     {"name": "9to5Mac", "url": "https://9to5mac.com/feed/", "limit": 8},
     {"name": "Android Authority", "url": "https://www.androidauthority.com/feed/", "limit": 8},
     {"name": "Hacker News Best", "url": "https://hnrss.org/best", "limit": 8},
-    # === 财经源（12个） ===
+    # === 财经源（15个，强化中文财经源 + RSSHub多实例fallback） ===
+    # 中文财经源（通过 RSSHub 镜像，带 fallback）
+    {"name": "财联社快讯", "url": "https://rsshub.rssforever.com/cls/telegraph", "limit": 15,
+     "fallback_urls": ["https://rsshub.pseudoyu.com/cls/telegraph", "https://rsshub.ktachibana.party/cls/telegraph"]},
+    {"name": "财新网", "url": "https://rsshub.pseudoyu.com/caixin/latest", "limit": 15,
+     "fallback_urls": ["https://rsshub.rssforever.com/caixin/latest", "https://rsshub.ktachibana.party/caixin/latest"]},
+    {"name": "金十数据", "url": "https://rsshub.rssforever.com/jin10/flash", "limit": 10,
+     "fallback_urls": ["https://rsshub.pseudoyu.com/jin10/flash", "https://rsshub.ktachibana.party/jin10/flash"]},
+    # 直连财经源
     {"name": "华尔街见闻", "url": "https://dedicated.wallstreetcn.com/rss.xml", "limit": 12},
     {"name": "Bloomberg Markets", "url": "https://feeds.bloomberg.com/markets/news.rss", "limit": 10},
     {"name": "CNBC", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "limit": 8},
     {"name": "MarketWatch", "url": "https://feeds.marketwatch.com/marketwatch/topstories/", "limit": 8},
     {"name": "Yahoo Finance", "url": "https://finance.yahoo.com/news/rssindex", "limit": 8},
-    {"name": "Financial Times", "url": "https://www.ft.com/rss/home", "limit": 8},
-    {"name": "FT Markets", "url": "https://www.ft.com/markets?format=rss", "limit": 8},
     {"name": "Seeking Alpha", "url": "https://seekingalpha.com/feed.xml", "limit": 8},
-    {"name": "The Economist", "url": "https://www.economist.com/finance-and-economics/rss.xml", "limit": 8},
     {"name": "Forbes Business", "url": "https://www.forbes.com/business/feed2", "limit": 8},
     {"name": "Business Insider", "url": "https://feeds.businessinsider.com/custom/all", "limit": 8},
     {"name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/", "limit": 8},
@@ -378,7 +391,7 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
         return []
 
 def collect_all_news() -> List[Dict]:
-    """收集所有 RSS 新闻到一起"""
+    """收集所有 RSS 新闻到一起，支持 fallback URLs"""
     all_items = []
 
     # 计算时间范围用于日志（过去24小时）
@@ -391,6 +404,17 @@ def collect_all_news() -> List[Dict]:
     for source in ALL_RSS_SOURCES:
         log(f"  - {source['name']}")
         items = fetch_rss_items(source['url'], source['limit'])
+
+        # 如果主URL失败且有fallback，尝试备选URL
+        if len(items) == 0 and 'fallback_urls' in source:
+            for fallback_url in source['fallback_urls']:
+                log(f"    主URL无结果，尝试fallback: {fallback_url[:50]}...")
+                items = fetch_rss_items(fallback_url, source['limit'])
+                if len(items) > 0:
+                    log(f"    fallback成功!")
+                    break
+                time.sleep(REQUEST_DELAY)
+
         for item in items:
             item['rss_source'] = source['name']
         all_items.extend(items)
@@ -428,8 +452,8 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
     """使用 AI 将新闻分类到 3 个类别"""
     log("正在使用 AI 分类新闻...")
 
-    # 准备新闻列表（最多30条，避免 token 过多）
-    news_list = news_items[:30]
+    # 准备新闻列表（最多40条，确保各分类有足够候选）
+    news_list = news_items[:40]
 
     # 构建分类 prompt
     news_text = ""
@@ -444,14 +468,15 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
 {news_text}
 
 分类标准（严格区分，不得交叉）：
-- **AI 领域**: 仅限人工智能核心技术 - 大模型、LLM、机器学习、深度学习、NLP、CV、AI训练/推理、AI芯片、AI应用（注意：必须是真正使用AI技术的产品/服务）、AI研究论文、OpenAI、Google DeepMind、Anthropic、Meta AI、xAI等AI公司动态等。**汽车电动化/自动驾驶如果与AI无关则归入科技动态**
-- **科技动态**: 非AI的科技内容 - 智能手机、电脑硬件、通用芯片、互联网产品、软件工程、游戏、新能源车（注意：汽车行业新闻如果与AI无关）、航天、5G/6G、物联网、创业公司、产品发布、科技企业动态等。**不包括任何AI相关内容**
-- **财经要闻**: 金融经济类 - 股市、基金、债券、经济政策、货币政策、融资、并购、IPO、金融监管、宏观经济、企业财报、行业投资、**石油、天然气、能源、大宗商品**等。**特别注意：石油增产、能源价格、产油国等绝对不能归入AI领域或科技动态**
+- **AI 领域**: 仅限人工智能核心技术 - 大模型、LLM、机器学习、深度学习、NLP、CV、AI训练/推理、AI芯片、AI应用（注意：必须是真正使用AI技术的产品/服务）、AI研究论文、OpenAI、Google DeepMind、Anthropic、Meta AI、xAI等AI公司动态等。
+- **科技动态**: 非AI的科技内容 - 智能手机、电脑硬件、通用芯片、互联网产品、软件工程、游戏、航天、5G/6G、物联网、创业公司、产品发布、科技企业动态等。**不包括任何AI相关内容**
+- **财经要闻**: 金融经济类 - 股市、基金、债券、经济政策、货币政策、融资、并购、IPO、金融监管、宏观经济、企业财报/营收/利润/市值、行业投资、石油天然气能源大宗商品、企业上市/冲击A股/上市定价、供应商产业链/供应链新闻等。
 
-重要排除规则：
-1. **石油、能源、大宗商品、货币政策、经济数据**等财经新闻，**必须归入财经要闻**，即使标题中出现了"AI"或"科技"也不改变分类
-2. 标题中出现的公司/产品名不改变其本质分类，例如"某石油公司发布AI产品"应归入财经要闻（因为本质是石油公司新闻）
-3. 春节红包、春晚、节假日促销等泛流量内容，如果没有AI/科技/财经核心内容，应该排除
+重要分类规则：
+1. **汽车行业**：新车上市/发布/定价/量产下线→财经要闻；自动驾驶AI技术→AI领域；汽车硬件评测→科技动态
+2. **企业新闻**：营收/利润/股价/IPO/融资/估值→财经要闻；产品技术发布→科技动态
+3. **供应链**：供应商冲击上市/营收披露/产业链动态→财经要闻
+4. **每个类别必须尽量选满5条**，优先选择重要性高、信息量大的新闻
 
 请按以下 JSON 格式输出（只输出 JSON，不要其他文字）：
 {{
@@ -461,9 +486,9 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
 }}
 
 注意：
-1. **严格区分AI领域和科技动态**，AI相关必须归入AI领域，非AI科技归入科技动态，不得混淆或交叉
-2. **财经要闻必须包含真正的财经/金融/经济新闻**，石油、能源、大宗商品等必须归入财经
-3. 每个类别选择最重要的 5 条，如果某个类别新闻不足5条，可以少于5条
+1. **严格区分AI领域和科技动态**，AI相关必须归入AI领域，非AI科技归入科技动态
+2. **财经要闻必须包含真正的财经/金融/经济新闻**，企业财务数据、上市动态、供应链产业新闻必须归入财经
+3. 每个类别选择最重要的 5 条，**如果某个类别候选不足5条，可以少于5条但尽量多选**
 4. 输出纯 JSON 格式"""
 
     result = call_llm_api(prompt, max_tokens=2000)
@@ -840,11 +865,37 @@ def main():
     categorized_news = normalized_categorized
     log(f"分类规范化后: {list(categorized_news.keys())}")
 
-    # 2.5 记录各类别实际数量（不补充，保持全部来自真实 RSS）
+    # 2.5 记录各类别实际数量，不足5条时尝试补救
     categories = ["AI领域", "科技动态", "财经要闻"]
     for category in categories:
         count = len(categorized_news.get(category, []))
         log(f"{category}: {count} 条真实新闻")
+
+    # 2.51 补救机制：如果任何分类不足3条，用剩余未分类新闻再次请求AI分类补充
+    min_count = min(len(categorized_news.get(cat, [])) for cat in categories)
+    if min_count < 3:
+        log(f"⚠️ 有分类不足3条，启动补救机制...")
+        # 找出已使用的新闻标题
+        used_titles = set()
+        for cat_items in categorized_news.values():
+            for item in cat_items:
+                used_titles.add(item.get('title', '').lower())
+        # 找出还没被分类的新闻
+        unused_news = [n for n in all_news if n.get('title', '').lower() not in used_titles]
+        if unused_news:
+            log(f"  找到 {len(unused_news)} 条未使用新闻，重新分类补充...")
+            supplement = classify_news_with_ai(unused_news)
+            # 规范化补充分类的键名
+            for old_key, news_list in supplement.items():
+                new_key = category_mapping.get(old_key, old_key)
+                if new_key in categories:
+                    current = categorized_news.get(new_key, [])
+                    needed = 5 - len(current)
+                    if needed > 0:
+                        categorized_news[new_key] = current + news_list[:needed]
+                        log(f"  {new_key}: 补充 {min(needed, len(news_list))} 条")
+        else:
+            log(f"  没有未使用的新闻可供补充")
 
     # 2.55 最终分类清理：确保只有3个标准分类
     final_categories = ["AI领域", "科技动态", "财经要闻"]
