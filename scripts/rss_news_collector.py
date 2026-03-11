@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-基于 RSS 订阅的新闻收集脚本 V4.1
+基于 RSS 订阅的新闻收集脚本 V4.2
 纯 RSS 模式，48 个源，24h 时间窗口，100% 真实新闻
 
 特性：
 - 48 个 RSS 源（AI 13 + 国内科技 11 + 国际科技 12 + 财经 12）
 - RSSHub 多实例 fallback 机制（财经源高可用）
+- 并发 RSS 采集（10线程），采集时间从 7min 压缩到 ~30s
 - 分类补救机制（不足 3 条时自动补充）
 - 优化 AI 分类提示词（汽车/供应链等边界案例）
-- 请求速率限制（0.5秒间隔）
 - 使用 certifi 正确验证 SSL 证书
 - 纯 RSS 模式，不使用 AI 补充新闻
 """
@@ -25,6 +25,7 @@ from typing import List, Dict
 import re
 import time
 from email.utils import parsedate_to_datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 # 尝试导入 certifi 用于正确的 SSL 证书验证
@@ -393,38 +394,40 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
         log(f"获取 RSS 失败 [{url}]: {e}")
         return []
 
-def collect_all_news() -> List[Dict]:
-    """收集所有 RSS 新闻到一起，支持 fallback URLs"""
-    all_items = []
+def fetch_source_with_fallback(source: Dict) -> tuple:
+    """并发辅助函数：获取单个 RSS 源（含 fallback），返回 (source_name, items)"""
+    items = fetch_rss_items(source['url'], source['limit'])
 
+    # 如果主URL失败且有fallback，尝试备选URL
+    if len(items) == 0 and 'fallback_urls' in source:
+        for fallback_url in source['fallback_urls']:
+            items = fetch_rss_items(fallback_url, source['limit'])
+            if len(items) > 0:
+                break
+
+    for item in items:
+        item['rss_source'] = source['name']
+
+    return source['name'], items
+
+
+def collect_all_news() -> List[Dict]:
+    """收集所有 RSS 新闻（并发模式，10线程），支持 fallback URLs"""
     # 计算时间范围用于日志（过去24小时）
     now = datetime.now().astimezone()
     cutoff_time = now - timedelta(hours=24)
 
-    log("开始收集 RSS 新闻...")
+    log(f"开始收集 RSS 新闻（并发模式，{len(ALL_RSS_SOURCES)} 个源）...")
     log(f"时间过滤范围: 过去24小时 ({cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
 
-    for source in ALL_RSS_SOURCES:
-        log(f"  - {source['name']}")
-        items = fetch_rss_items(source['url'], source['limit'])
+    all_items = []
 
-        # 如果主URL失败且有fallback，尝试备选URL
-        if len(items) == 0 and 'fallback_urls' in source:
-            for fallback_url in source['fallback_urls']:
-                log(f"    主URL无结果，尝试fallback: {fallback_url[:50]}...")
-                items = fetch_rss_items(fallback_url, source['limit'])
-                if len(items) > 0:
-                    log(f"    fallback成功!")
-                    break
-                time.sleep(REQUEST_DELAY)
-
-        for item in items:
-            item['rss_source'] = source['name']
-        all_items.extend(items)
-        log(f"    获取 {len(items)} 条")
-
-        # 添加速率限制，避免请求过快
-        time.sleep(REQUEST_DELAY)
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_source_with_fallback, source): source for source in ALL_RSS_SOURCES}
+        for future in as_completed(futures):
+            source_name, items = future.result()
+            log(f"  - {source_name}: 获取 {len(items)} 条")
+            all_items.extend(items)
 
     # 去重（基于标题）
     seen_titles = set()
