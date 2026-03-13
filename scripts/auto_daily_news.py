@@ -33,6 +33,7 @@ from zhdate import ZhDate
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AIzaSyCA1dsHj648WD57sht9aR3Eiw04aAKYw-o")
 # 从环境变量读取 AppID，默认使用三更AI
 APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")
 
@@ -230,28 +231,50 @@ def extract_text_from_html(html_content):
     text = text.replace('&nbsp;', ' ').replace('&amp;', '&')
     return text
 
+def call_gemini_api(prompt, max_tokens=2000):
+    """调用 Google Gemini API（主力）"""
+    if not GOOGLE_API_KEY:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        return result["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        log(f"Gemini API 调用失败: {e}")
+        return None
+
+
 def call_llm_api(prompt, max_tokens=2000):
-    """调用 LLM API（仅使用豆包）"""
+    """调用 LLM API：Gemini 主力，豆包兜底"""
+    result = call_gemini_api(prompt, max_tokens)
+    if result:
+        return result
+    log("Gemini 失败，尝试豆包兜底...")
     return call_doubao_api(prompt, max_tokens)
 
-def call_doubao_api(prompt, max_tokens=2000):
-    """调用豆包 API 生成内容（备用）"""
-    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
+def call_doubao_api(prompt, max_tokens=2000):
+    """调用豆包 API 生成内容（兜底）"""
+    if not DOUBAO_API_KEY:
+        return None
+    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
     headers = {
         "Authorization": f"Bearer {DOUBAO_API_KEY}",
         "Content-Type": "application/json"
     }
-
     payload = {
         "model": "doubao-seed-2-0-lite-260215",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "temperature": 0.7
+        "temperature": 0.3
     }
-
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()

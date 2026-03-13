@@ -196,15 +196,15 @@ def is_valid_news_title(title: str) -> bool:
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AIzaSyCA1dsHj648WD57sht9aR3Eiw04aAKYw-o")
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
-# 检查 API Key
-if not DOUBAO_API_KEY:
-    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
-    print("请运行: export DOUBAO_API_KEY='your-api-key'")
+# 检查 API Key（至少有一个即可）
+if not DOUBAO_API_KEY and not GOOGLE_API_KEY:
+    print("错误: 未设置 DOUBAO_API_KEY 或 GOOGLE_API_KEY 环境变量")
     sys.exit(1)
 
 # RSSHub 镜像实例列表（用于 fallback）
@@ -469,20 +469,38 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
             news_text += f"   摘要: {item['summary'][:100]}\n"
         news_text += f"   来源: {item['rss_source']}\n\n"
 
-    prompt = f"""你是一位专业新闻编辑。请将以下新闻严格分类到 3 个类别中：
+    prompt = f"""你是专业新闻编辑，负责筛选和分类今日科技财经新闻。请从以下新闻中，为每个类别各选出5条最重要的新闻。
 
 {news_text}
 
-分类标准（严格区分，不得交叉）：
-- **AI 领域**: 仅限人工智能核心技术 - 大模型、LLM、机器学习、深度学习、NLP、CV、AI训练/推理、AI芯片、AI应用（注意：必须是真正使用AI技术的产品/服务）、AI研究论文、OpenAI、Google DeepMind、Anthropic、Meta AI、xAI等AI公司动态等。
-- **科技动态**: 非AI的科技内容 - 智能手机、电脑硬件、通用芯片、互联网产品、软件工程、游戏、航天、5G/6G、物联网、创业公司、产品发布、科技企业动态等。**不包括任何AI相关内容**
-- **财经要闻**: 金融经济类 - 股市、基金、债券、经济政策、货币政策、融资、并购、IPO、金融监管、宏观经济、企业财报/营收/利润/市值、行业投资、石油天然气能源大宗商品、企业上市/冲击A股/上市定价、供应商产业链/供应链新闻等。
+【三大类别定义——严格区分，不得交叉】
 
-重要分类规则：
-1. **汽车行业**：新车上市/发布/定价/量产下线→财经要闻；自动驾驶AI技术→AI领域；汽车硬件评测→科技动态
-2. **企业新闻**：营收/利润/股价/IPO/融资/估值→财经要闻；产品技术发布→科技动态
-3. **供应链**：供应商冲击上市/营收披露/产业链动态→财经要闻
-4. **每个类别必须尽量选满5条**，优先选择重要性高、信息量大的新闻
+**AI 领域**（仅限AI核心技术与应用）：
+- 大模型/LLM发布与评测、AI训练推理技术、AI芯片（专用）
+- OpenAI/Google DeepMind/Anthropic/Meta AI/xAI/百度/阿里/字节AI部门等AI公司动态
+- AI产品发布（必须是真正基于AI技术的产品）、AI研究论文与学术成果
+- ❌ 排除：普通互联网产品、手机、游戏、医学研究（即使用了AI也要看核心是否是AI进展）
+
+**科技动态**（非AI的科技内容）：
+- 智能手机/电脑/平板硬件、消费电子新品发布
+- 互联网产品（社交/搜索/电商平台功能更新）、游戏、软件工程
+- 航天探索、量子计算、5G/6G、半导体通用芯片（非AI专用）
+- 科技公司企业动态（产品层面而非财务层面）
+- ❌ 排除：生物医学研究、心理学、社会学研究、养老/医疗行业新闻
+
+**财经要闻**（金融经济类）：
+- 股市行情、A股港股美股动态、基金、债券
+- 企业融资/IPO/并购/收购、营收财报、估值市值
+- 宏观经济政策、央行/美联储货币政策、汇率
+- 大宗商品（石油/黄金/铜等）、加密货币行情
+- ❌ 排除：产品发布（应归入对应科技/AI类）
+
+【去重规则——重要！】
+如果多条新闻报道同一事件（同一公司的同一融资/同一产品/同一政策），只选其中最重要的1条，不重复选择同一事件的不同角度报道。
+
+【选择优先级】
+优先选择：知名公司/大额融资/重大政策/行业重磅消息
+降低优先级：学术小组研究、行业综述、分析师评论（如果没有更好的选择才用）
 
 请按以下 JSON 格式输出（只输出 JSON，不要其他文字）：
 {{
@@ -491,11 +509,7 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
   "财经要闻": [11, 12, 13, 14, 15]
 }}
 
-注意：
-1. **严格区分AI领域和科技动态**，AI相关必须归入AI领域，非AI科技归入科技动态
-2. **财经要闻必须包含真正的财经/金融/经济新闻**，企业财务数据、上市动态、供应链产业新闻必须归入财经
-3. 每个类别选择最重要的 5 条，**如果某个类别候选不足5条，可以少于5条但尽量多选**
-4. 输出纯 JSON 格式"""
+注意：每个类别各选5条（不足时少选），同一事件只选1条，严禁重复。"""
 
     result = call_llm_api(prompt, max_tokens=2000)
     if not result:
@@ -558,39 +572,37 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
     for i, title in enumerate(all_titles, 1):
         titles_text += f"{i}. {title}\n"
 
-    prompt = f"""你是一位专业新闻编辑。请将以下新闻标题改写为符合新闻简讯规范的标题。
+    prompt = f"""你是专业新闻编辑，将以下新闻标题改写为30-42字的中文新闻简讯。
 
 原始标题：
 {titles_text}
 
-【核心要求：新闻三要素】
-**每条标题必须包含：主体（谁）+ 行为（做了什么）+ 结果/意义（怎么了）**
-- 主体必须是具体的公司名、人名、机构名或产品名，例如：OpenAI、苹果、特斯拉、马斯克、DeepSeek
-- 行为必须是具体动作：发布、推出、宣布、完成、收购、融资、上线、获批…
-- 结果/意义：性能指标、市场影响、用户数量等具体描述（不要用具体金融数字）
+【铁律——违反即失败】
 
-格式要求：
-1. **严格控制字数**：每个标题必须在 35-45 字之间（含标点符号）
-2. **合理使用标点**：使用逗号分隔信息点，以句号或逗号结尾
-3. **顺序对应**：按原顺序输出，每行一个标题
+**1. 主语必须具体，禁止泛化**
+- ✅ 必须保留原标题中的真实主体：公司名、人名、机构名、产品名
+  例：OpenAI、苹果、特斯拉、谷歌、华为、MIT、斯坦福大学、DeepSeek
+- ❌ 严禁用以下泛化词替换具体名称：
+  "科研团队"、"研发团队"、"行业机构"、"消息人士"、"第三方机构"、"分析机构"、"业内人士"
+- 原标题本身就没有具体名称时（如匿名来源），才允许用"研究人员"、"分析人士"
 
-**严格禁止**：
-- **禁止无主语句子**：标题不能以"聚焦"、"探索"、"开展"、"研究"、"致力于"等动词开头而没有主体
-- **禁止使用"早报"、"派早报"、"今日早报"、"本周动态"等多消息合并形式**
-- **每个标题只能描述一个单一事件**，多事件原标题选最重要一个改写
-- 禁止泛泛而谈、缺乏具体主体和事件的空洞描述
+**2. 字数：30-42字（含标点），每条描述单一事件**
 
-❌ 错误示例（无主语，空洞描述）：
-- 聚焦人工智能未来发展，探讨数理科学领域机遇，提出三个核心议题引发行业深度思考。
-- 在真实世界临床场景中开展专项研究，探索对话式诊断人工智能落地应用的实际可行性。
-- 致力于打造性能成熟的实体人工智能技术体系。
+**3. 格式：主体+动作+结果，以句号或逗号结尾**
 
-✅ 正确示例（主体+行为+结果）：
-- 阿里通义千问发布Qwen3.5大模型，以小规模参数实现性能突破，打破大模型性价比天花板。
-- 苹果正式发布iPhone 17e，起售价4499元，支持eSIM功能，主打中端市场年轻用户群体。
-- OpenAI完成新一轮融资，亚马逊成为主要战略投资方，估值创历史新高。
+**4. 英文标题翻译成中文，保留品牌名/产品名原文或约定俗成译名**
 
-请直接输出优化后的标题列表，每行一个，不要序号和其他文字："""
+示例改写：
+原: MIT develops heart failure AI model predicting one-year patient deterioration
+改: MIT研究人员开发心力衰竭预后AI模型，可预测患者一年内病情恶化，精准度超过现有临床标准。
+
+原: Nvidia Omniverse platform accelerates industrial AI design workflows
+改: 英伟达Omniverse平台发布工业AI设计套件，整合数字孪生技术，大幅提升制造业多环节协作效率。
+
+原: Apple cuts App Store commission rates in China
+改: 苹果宣布下调中国区App Store佣金费率，降幅约X%，利好国内中小开发者降低运营成本。
+
+按原顺序每行输出一个改写后的标题，不要序号："""
 
     result = call_llm_api(prompt, max_tokens=1000)
     if not result:
@@ -639,33 +651,49 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
 
     return categorized
 
-def call_llm_api(prompt, max_tokens=2000):
-    """调用 LLM API（仅使用豆包）"""
-    return call_doubao_api(prompt, max_tokens)
+def call_gemini_api(prompt, max_tokens=2000):
+    """调用 Google Gemini API（主力）"""
+    if not GOOGLE_API_KEY:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": 0.3,
+        }
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        return result["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        log(f"Gemini API 调用失败: {e}")
+        return None
 
-def call_doubao_api(prompt, max_tokens=2000, retries=2):
-    """调用豆包 API 生成内容（带重试机制）"""
+
+def call_doubao_api(prompt, max_tokens=2000, retries=1):
+    """调用豆包 API 生成内容（兜底）"""
+    if not DOUBAO_API_KEY:
+        return None
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-
     headers = {
         "Authorization": f"Bearer {DOUBAO_API_KEY}",
         "Content-Type": "application/json"
     }
-
     payload = {
         "model": "doubao-seed-2-0-lite-260215",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "temperature": 0.7
+        "temperature": 0.3
     }
-
     for attempt in range(retries + 1):
         try:
             if attempt > 0:
                 log(f"豆包 API 重试第 {attempt} 次...")
-                time.sleep(2)  # 等待2秒后重试
+                time.sleep(2)
             response = requests.post(url, headers=headers, json=payload, timeout=120)
             response.raise_for_status()
             result = response.json()
@@ -674,8 +702,16 @@ def call_doubao_api(prompt, max_tokens=2000, retries=2):
             if attempt == retries:
                 log(f"豆包 API 调用失败（已重试 {retries} 次）: {e}")
                 return None
-            else:
-                log(f"豆包 API 调用失败（第 {attempt + 1} 次尝试）: {e}")
+            log(f"豆包 API 调用失败（第 {attempt + 1} 次尝试）: {e}")
+
+
+def call_llm_api(prompt, max_tokens=2000):
+    """调用 LLM API：Gemini 主力，豆包兜底"""
+    result = call_gemini_api(prompt, max_tokens)
+    if result:
+        return result
+    log("Gemini 失败，尝试豆包兜底...")
+    return call_doubao_api(prompt, max_tokens)
 
 def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "") -> str:
     """将分类后的新闻格式化为 HTML（使用 inline style，兼容微信公众号）"""
@@ -733,25 +769,22 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
         for item in items:
             news_texts.append(f"【{category}】{item.get('title', '')}")
 
-    microword_prompt = f"""根据以下新闻标题，写一句与今日科技动态相关的深度金句。
+    microword_prompt = f"""根据以下新闻标题，写一句今日科技感言。
 
 新闻标题:
 {chr(10).join(news_texts[:10])}
 
 要求:
-1. 25-40字，有节奏感，富有哲理和思考深度
-2. 不要总结新闻内容，而是从新闻背后提炼出深层洞察或启示
-3. 与科技、AI、创新、商业趋势相关，要有时代感
-4. 语气深沉有力，像一句让人深思的格言或警句
-5. 必须包含标点符号（逗号、句号或感叹号），句式可以是转折、递进或对比
-6. 只输出金句本身，不要任何前缀说明
+1. 25-40字，句子语法完整，语义通顺，不能出现乱码或残句
+2. 从这批新闻背后提炼出一个深层洞察，不要直接复述新闻内容
+3. 与AI/科技/商业趋势相关，有时代感，有哲理
+4. 使用标点符号（逗号、句号），句式清晰
+5. 只输出感言本身，不要任何前缀或说明
 
-风格示例（参考，不要照抄）：
-- 科技的边界每天都在后退，而真正的壁垒，始终是人的认知与格局。
-- 当所有人都在追逐下一个风口，最稳的赢家，往往是那个定义了规则的人。
-- AI 不会取代人，但懂得用 AI 的人，终将重塑每一个行业的生存法则。
-- 每一次技术革命的背后，都是旧秩序的终结与新信仰的重建。
-- 时代抛弃你时，连招呼都不会打"""
+风格参考（不要照抄）：
+- 科技的边界每天都在后退，真正的壁垒始终是人的认知与格局。
+- 当所有人都在追逐风口，定义规则的人往往已悄悄赢得下一局。
+- AI不会取代人，但懂得用AI的人，终将重塑每个行业的生存法则。"""
 
     microword = call_llm_api(microword_prompt, max_tokens=200)
     if not microword:
