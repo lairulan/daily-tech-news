@@ -196,7 +196,7 @@ def is_valid_news_title(title: str) -> bool:
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AIzaSyCA1dsHj648WD57sht9aR3Eiw04aAKYw-o")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AQ.Ab8RN6LKLi1gwnul0aGEdgXzolnfIKYhiovTTsf-yr36z8yDeg")
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
@@ -655,7 +655,7 @@ def call_gemini_api(prompt, max_tokens=2000):
     """调用 Google Gemini API（主力）"""
     if not GOOGLE_API_KEY:
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
