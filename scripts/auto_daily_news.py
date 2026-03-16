@@ -430,20 +430,34 @@ def publish_to_wechat(title, content, cover_url):
         "Content-Type": "application/json"
     }
 
-    # 生成摘要 - 先提取纯文本再让 AI 生成摘要
-    plain_text = extract_text_from_html(content)
-    summary_prompt = f"""请根据以下新闻日报内容，生成一句简洁的摘要（20-30字），要求：
+    # 读取 RSS 收集器已生成的摘要（避免重复调用 AI）
+    today_str_raw = datetime.now().strftime("%Y%m%d")
+    raw_news_file = os.path.join(WORK_DIR, f"raw_news_{today_str_raw}.json")
+    summary = None
+    if os.path.exists(raw_news_file):
+        try:
+            with open(raw_news_file, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+            summary = raw_data.get("summary", "").strip().strip('"\'')
+            if summary:
+                log(f"使用RSS收集器摘要: {summary}")
+        except Exception:
+            pass
+
+    # 如果没有现成摘要，再调用 AI 生成
+    if not summary:
+        plain_text = extract_text_from_html(content)
+        summary_prompt = f"""请根据以下新闻日报内容，生成一句简洁的摘要（20-30字），要求：
 1. 提炼出当天最重要的1-2个新闻亮点
 2. 语言简洁有力，吸引读者点击
 3. 不要包含日期信息
 
 新闻内容：
 {plain_text[:800]}"""
-    summary = call_llm_api(summary_prompt, max_tokens=100)
-    if summary:
-        # 清理可能的多余内容
-        summary = summary.strip().strip('"\'')
-        log(f"生成摘要: {summary}")
+        summary = call_llm_api(summary_prompt, max_tokens=100)
+        if summary:
+            summary = summary.strip().strip('"\'')
+            log(f"生成摘要: {summary}")
 
     payload = {
         "wechatAppid": APPID,

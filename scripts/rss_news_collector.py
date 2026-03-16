@@ -572,25 +572,28 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
     for i, title in enumerate(all_titles, 1):
         titles_text += f"{i}. {title}\n"
 
-    prompt = f"""你是专业新闻编辑，将以下新闻标题改写为30-42字的中文新闻简讯。
+    prompt = f"""你是专业中文新闻编辑，将以下新闻标题改写为30-42字的**中文**新闻简讯。
 
 原始标题：
 {titles_text}
 
-【铁律——违反即失败】
+【铁律——违反任何一条即为失败】
 
-**1. 主语必须具体，禁止泛化**
+**1. 所有输出必须是中文**
+- 英文标题必须完整翻译为中文，禁止输出英文句子
+- 仅允许保留品牌名/产品名的英文原文（如OpenAI、iPhone、Tesla、GPT-4）
+- 除品牌名外，标题中不允许出现任何英文单词
+
+**2. 主语必须具体，禁止泛化**
 - ✅ 必须保留原标题中的真实主体：公司名、人名、机构名、产品名
   例：OpenAI、苹果、特斯拉、谷歌、华为、MIT、斯坦福大学、DeepSeek
 - ❌ 严禁用以下泛化词替换具体名称：
   "科研团队"、"研发团队"、"行业机构"、"消息人士"、"第三方机构"、"分析机构"、"业内人士"
 - 原标题本身就没有具体名称时（如匿名来源），才允许用"研究人员"、"分析人士"
 
-**2. 字数：30-42字（含标点），每条描述单一事件**
+**3. 字数：严格30-42字（含标点），少于30字视为不合格，每条描述单一事件**
 
-**3. 格式：主体+动作+结果，以句号或逗号结尾**
-
-**4. 英文标题翻译成中文，保留品牌名/产品名原文或约定俗成译名**
+**4. 格式：主体+动作+结果，以句号或逗号结尾**
 
 示例改写：
 原: MIT develops heart failure AI model predicting one-year patient deterioration
@@ -604,7 +607,7 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
 
 按原顺序每行输出一个改写后的标题，不要序号："""
 
-    result = call_llm_api(prompt, max_tokens=1000)
+    result = call_llm_api(prompt, max_tokens=1500)
     if not result:
         log("标题规范化失败，使用原标题")
         return categorized
@@ -614,41 +617,46 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
 
     # 去掉可能的序号
     cleaned_titles = []
-    invalid_count = 0
     for title in optimized_titles:
         # 移除可能的序号格式：1. 或 1、
         title = re.sub(r'^\d+[.、]\s*', '', title)
         title = title.strip()
-
-        # 安全检查：验证标题是否有效
-        if not is_valid_news_title(title):
-            log(f"  警告：AI生成的标题无效，已过滤: {title[:30]}...")
-            invalid_count += 1
-            continue
-
         cleaned_titles.append(title)
 
-    # 如果有无效标题，只使用有效的
-    if invalid_count > 0:
-        log(f"已过滤 {invalid_count} 条AI生成的无效标题")
+    # 逐条替换：每条标题独立验证，无效的保留原标题
+    title_index = 0
+    updated_count = 0
+    kept_count = 0
+    for category, items in categorized.items():
+        for item in items:
+            old_title = item.get('title', '')
 
-    # 更新标题
-    if len(cleaned_titles) >= len(all_titles):
-        title_index = 0
-        for category, items in categorized.items():
-            for item in items:
-                if title_index < len(cleaned_titles):
-                    old_title = item.get('title', '')
-                    new_title = cleaned_titles[title_index]
-                    # 只有当新标题有效时才更新
-                    if is_valid_news_title(new_title):
-                        item['title'] = new_title
-                        log(f"  标题优化: {len(old_title)}字 → {len(new_title)}字")
-                    title_index += 1
-        log("标题规范化完成")
-    else:
-        log(f"有效标题数量不足（原{len(all_titles)}条，有效{len(cleaned_titles)}条），使用原标题")
+            if title_index < len(cleaned_titles):
+                new_title = cleaned_titles[title_index]
+                title_index += 1
 
+                # 验证新标题质量
+                chinese_chars = len(re.findall(r'[\u4e00-\u9fa5]', new_title))
+                english_words = len(re.findall(r'[a-zA-Z]{4,}', new_title))
+                is_mostly_english = english_words > 5
+
+                if not is_valid_news_title(new_title):
+                    log(f"  保留原标题（AI生成无效）: {new_title[:30]}...")
+                    kept_count += 1
+                elif chinese_chars < 15:
+                    log(f"  保留原标题（中文字数不足{chinese_chars}字）: {new_title[:30]}...")
+                    kept_count += 1
+                elif is_mostly_english:
+                    log(f"  保留原标题（含过多英文）: {new_title[:30]}...")
+                    kept_count += 1
+                else:
+                    item['title'] = new_title
+                    log(f"  标题优化: {len(old_title)}字 → {len(new_title)}字")
+                    updated_count += 1
+            else:
+                kept_count += 1
+
+    log(f"标题规范化完成: 更新{updated_count}条，保留原标题{kept_count}条")
     return categorized
 
 def call_gemini_api(prompt, max_tokens=2000):
@@ -786,12 +794,17 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
 - 当所有人都在追逐风口，定义规则的人往往已悄悄赢得下一局。
 - AI不会取代人，但懂得用AI的人，终将重塑每个行业的生存法则。"""
 
-    microword = call_llm_api(microword_prompt, max_tokens=200)
+    microword = call_llm_api(microword_prompt, max_tokens=300)
+    default_microword = "科技的边界每天都在后退，而真正的壁垒，始终是人的认知与格局。"
     if not microword:
-        microword = "科技的边界每天都在后退，而真正的壁垒，始终是人的认知与格局。"
+        microword = default_microword
     microword = microword.strip().strip('"\'')
+    # 截断检测：如果微语太短或不以标点结尾，可能被截断，使用默认值
+    if len(microword) < 15 or (not microword.endswith(('。', '！', '？', '…')) and len(microword) > 45):
+        log(f"  微语可能被截断或格式异常（{len(microword)}字），使用默认值")
+        microword = default_microword
     # 确保微语以标点符号结尾
-    if not microword.endswith(('。', '！', '？', '…', '，')):
+    if not microword.endswith(('。', '！', '？', '…')):
         microword = microword + '。'
 
     # 使用 AI 生成智能摘要（用于微信公众号文章摘要）
