@@ -550,6 +550,10 @@ def main():
             log(f"⚠️ 质量警告: {warning}")
     if quality_result["valid"]:
         log("✅ 质量检查通过")
+    else:
+        log("❌ 质量检查未通过，内容不完整，终止发布")
+        log("可能原因: 周末/节假日RSS源更新量不足，或网络问题导致抓取失败")
+        sys.exit(1)
 
     # 2. 生成封面图
     log("正在生成封面图...")
