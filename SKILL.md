@@ -41,7 +41,7 @@ python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py --check-env
 python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py --dry-run
 
 # 指定公众号发布
-python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py --appid wx5c5f1c55d02d1354
+python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py --appid ${WECHAT_APP_ID}
 ```
 
 ---
@@ -274,7 +274,7 @@ python3 ~/.claude/skills/daily-tech-news/scripts/auto_daily_news.py
 | 项目 | 值 |
 |------|-----|
 | 公众号 | 三更AI |
-| AppID | `wx5c5f1c55d02d1354`（可通过环境变量覆盖）|
+| AppID | `${WECHAT_APP_ID}`（通过环境变量配置）|
 
 ---
 

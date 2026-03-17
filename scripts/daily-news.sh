@@ -17,7 +17,7 @@ fi
 # 配置参数
 WORK_DIR="$HOME/.claude/skills/daily-tech-news"
 LOG_FILE="$WORK_DIR/logs/daily-news.log"
-APPID="wx5c5f1c55d02d1354"  # 三更
+APPID="${WECHAT_APP_ID}"  # 从环境变量读取
 PYTHON_SCRIPT="$HOME/.claude/skills/wechat-publish/scripts/publish.py"
 
 # 创建日志目录

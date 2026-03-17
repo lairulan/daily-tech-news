@@ -196,7 +196,7 @@ def is_valid_news_title(title: str) -> bool:
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AQ.Ab8RN6LKLi1gwnul0aGEdgXzolnfIKYhiovTTsf-yr36z8yDeg")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)

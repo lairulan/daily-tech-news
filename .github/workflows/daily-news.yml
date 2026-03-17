@@ -36,6 +36,8 @@ jobs:
         env:
           WECHAT_API_KEY: ${{ secrets.WECHAT_API_KEY }}
           DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
         run: |
           set -x  # 显示执行的命令
