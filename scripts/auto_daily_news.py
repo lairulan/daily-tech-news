@@ -20,12 +20,10 @@ import subprocess
 import argparse
 from datetime import datetime, timedelta
 
-# 尝试导入 certifi 用于正确的 SSL 证书验证
-try:
-    import certifi
-    SSL_VERIFY = certifi.where()
-except ImportError:
-    SSL_VERIFY = True  # 使用系统证书
+# SSL 验证配置
+# 注意: wx.limyai.com 证书 2026-03-20 过期，临时跳过验证
+# TODO: 证书续期后恢复为 certifi.where() 或 True
+SSL_VERIFY = False
 
 import requests
 from zhdate import ZhDate
@@ -33,9 +31,9 @@ from zhdate import ZhDate
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AQ.Ab8RN6LKLi1gwnul0aGEdgXzolnfIKYhiovTTsf-yr36z8yDeg")
 # 从环境变量读取 AppID，默认使用三更AI
-APPID = os.environ.get("WECHAT_APP_ID")
+APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -382,7 +380,6 @@ def generate_cover_image(title):
         "--title", title,
         "--style", "tech",
         "--retry", "3",
-        "--retry-delay", "3",
         "--size", "2048x2048"
     ]
 
@@ -470,7 +467,7 @@ def publish_to_wechat(title, content, cover_url):
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = requests.post(url, headers=headers, json=payload, timeout=30, verify=SSL_VERIFY)
         response.raise_for_status()
         result = response.json()
         log(f"API响应: {result}")
