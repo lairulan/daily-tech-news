@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-基于 RSS 订阅的新闻收集脚本 V4.2
+基于 RSS 订阅的新闻收集脚本 V4.2.0
 纯 RSS 模式，48 个源，24h 时间窗口，100% 真实新闻
 
 特性：
@@ -8,7 +8,10 @@
 - RSSHub 多实例 fallback 机制（财经源高可用）
 - 并发 RSS 采集（10线程），采集时间从 7min 压缩到 ~30s
 - 分类补救机制（不足 3 条时自动补充）
-- 优化 AI 分类提示词（汽车/供应链等边界案例）
+- 新闻正文简报：每条新闻附带1-2句40-60字简报
+- 模糊去重：字符级 Jaccard 相似度（阈值 0.6）
+- HTML 清洗增强：CDATA + unescape + content:encoded 解析
+- 分类 JSON 解析正则 fallback
 - 使用 certifi 正确验证 SSL 证书
 - 纯 RSS 模式，不使用 AI 补充新闻
 """
@@ -24,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import re
 import time
+import html as html_module
 from email.utils import parsedate_to_datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
@@ -287,6 +291,23 @@ def log(message):
         f.write(f"[{timestamp}] {message}\n")
     print(message, flush=True)  # 确保输出立即刷新
 
+def clean_html_content(raw_text):
+    """清洗 HTML 内容：移除 CDATA、HTML标签、转义字符、多余空白"""
+    if not raw_text:
+        return ''
+    text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', raw_text, flags=re.DOTALL)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = html_module.unescape(text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def is_similar_title(t1, t2, threshold=0.6):
+    """字符级 Jaccard 相似度检查"""
+    s1, s2 = set(t1), set(t2)
+    return len(s1 & s2) / len(s1 | s2) > threshold if s1 | s2 else False
+
+
 def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict]:
     """获取 RSS 条目"""
     try:
@@ -324,16 +345,14 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
                     break
             item['title'] = title_text if title_text else '无标题'
 
-            # 描述/摘要
+            # 描述/摘要（优先 content:encoded 获取更丰富正文）
             desc_text = ''
-            for desc_path in ['description', '{http://www.w3.org/2005/Atom}summary', 'content', '{http://www.w3.org/2005/Atom}content']:
+            for desc_path in ['{http://purl.org/rss/1.0/modules/content/}encoded', 'description', '{http://www.w3.org/2005/Atom}summary', 'content', '{http://www.w3.org/2005/Atom}content']:
                 desc_elem = elem.find(desc_path)
                 if desc_elem is not None and desc_elem.text:
                     desc_text = desc_elem.text
                     break
-            # 移除 HTML 标签
-            desc_text = re.sub('<[^<]+?>', '', desc_text)
-            desc_text = desc_text.strip()
+            desc_text = clean_html_content(desc_text)
             item['summary'] = desc_text[:500] if desc_text else ''
 
             # 链接
@@ -444,6 +463,11 @@ def collect_all_news() -> List[Dict]:
             continue
 
         if title_lower not in seen_titles and title != '无标题':
+            # 模糊去重：检查与已有标题的字符级 Jaccard 相似度
+            is_duplicate = any(is_similar_title(title_lower, existing) for existing in seen_titles)
+            if is_duplicate:
+                log(f"  模糊去重过滤: {title[:30]}...")
+                continue
             seen_titles.add(title_lower)
             unique_items.append(item)
 
@@ -466,7 +490,7 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
     for i, item in enumerate(news_list, 1):
         news_text += f"{i}. 标题: {item['title']}\n"
         if item['summary']:
-            news_text += f"   摘要: {item['summary'][:100]}\n"
+            news_text += f"   摘要: {item['summary'][:200]}\n"
         news_text += f"   来源: {item['rss_source']}\n\n"
 
     prompt = f"""你是专业新闻编辑，负责筛选和分类今日科技财经新闻。请从以下新闻中，为每个类别各选出5条最重要的新闻。
@@ -541,7 +565,22 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
         return categorized
 
     except json.JSONDecodeError as e:
-        log(f"解析 AI 分类结果失败: {e}")
+        log(f"解析 AI 分类结果失败: {e}，尝试正则 fallback...")
+        # 正则 fallback：提取 JSON 对象
+        json_match = re.search(r'\{[^{}]*\}', result, re.DOTALL)
+        if json_match:
+            try:
+                classification = json.loads(json_match.group())
+                categorized = {cat: [] for cat in CATEGORIES}
+                for category, indices in classification.items():
+                    if category in CATEGORIES:
+                        for idx in indices[:5]:
+                            if idx - 1 < len(news_list):
+                                categorized[category].append(news_list[idx - 1])
+                log(f"正则 fallback 成功: AI领域{len(categorized['AI 领域'])}条, 科技动态{len(categorized['科技动态'])}条, 财经要闻{len(categorized['财经要闻'])}条")
+                return categorized
+            except Exception:
+                pass
         log(f"原始结果: {result[:500]}")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
 
@@ -659,6 +698,72 @@ def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]
     log(f"标题规范化完成: 更新{updated_count}条，保留原标题{kept_count}条")
     return categorized
 
+def generate_news_briefs(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
+    """使用 AI 为每条入选新闻生成1-2句简报"""
+    log("正在生成新闻简报...")
+
+    # 收集所有入选新闻的 title + summary + source
+    news_items_for_brief = []
+    for category, items in categorized.items():
+        for item in items:
+            news_items_for_brief.append(item)
+
+    if not news_items_for_brief:
+        return categorized
+
+    # 构建 prompt
+    brief_text = ""
+    for i, item in enumerate(news_items_for_brief, 1):
+        title = item.get('title', '')
+        summary = item.get('summary', '')[:200]
+        source = item.get('rss_source', '')
+        brief_text += f"{i}. 标题: {title}\n"
+        if summary:
+            brief_text += f"   摘要: {summary}\n"
+        brief_text += f"   来源: {source}\n\n"
+
+    prompt = f"""你是专业新闻编辑，为以下新闻各写1-2句简报（40-60字），补充标题未涵盖的关键信息。
+
+{brief_text}
+
+【要求】
+1. 每条简报40-60字，语法完整，信息量大
+2. 遵循新闻写作规范：Who（谁）、What（做了什么）、When/Where（时间/地点，如有）
+3. 补充标题中没有的信息（如具体数据、影响范围、技术细节）
+4. 如果摘要信息不足，基于标题合理推断，不要编造具体数字
+5. 中文输出，品牌名可保留英文
+6. 按原顺序每行输出一条简报，不要序号
+
+示例：
+该模型在多项基准测试中超越GPT-4o，推理速度提升40%，已面向企业用户开放API接口。"""
+
+    result = call_llm_api(prompt, max_tokens=1500)
+    if not result:
+        log("简报生成失败，brief 留空")
+        return categorized
+
+    # 解析简报
+    briefs = [line.strip() for line in result.strip().split('\n') if line.strip()]
+    # 去掉可能的序号
+    cleaned_briefs = []
+    for brief in briefs:
+        brief = re.sub(r'^\d+[.、]\s*', '', brief).strip()
+        if brief:
+            cleaned_briefs.append(brief)
+
+    # 填入 item['brief']
+    idx = 0
+    for category, items in categorized.items():
+        for item in items:
+            if idx < len(cleaned_briefs):
+                item['brief'] = cleaned_briefs[idx]
+                idx += 1
+            else:
+                item['brief'] = ''
+
+    log(f"简报生成完成: {idx}/{len(news_items_for_brief)} 条")
+    return categorized
+
 def call_gemini_api(prompt, max_tokens=2000):
     """调用 Google Gemini API（主力）"""
     if not GOOGLE_API_KEY:
@@ -767,6 +872,13 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
             margin_style = "margin: 0 0 15px 0" if i < len(items) else "margin: 0 0 0 0"
             # 序号使用圆形背景 + 白色数字（跟随板块颜色）
             news_html += f'  <p style="{margin_style}; line-height: 2; color: #333; font-size: 15px;"><span style="display: inline-block; min-width: 24px; height: 24px; background: {color}; color: #fff; font-weight: bold; font-size: 13px; text-align: center; line-height: 24px; border-radius: 50%; margin-right: 12px;">{i:02d}</span>{title}</p>\n'
+            # 简报正文（如有）
+            brief = item.get('brief', '')
+            if brief:
+                if not brief.endswith(('。', '！', '？', '…')):
+                    brief = brief + '。'
+                brief_margin = "margin: -10px 0 15px 0" if i < len(items) else "margin: -10px 0 0 0"
+                news_html += f'  <p style="{brief_margin}; padding-left: 36px; line-height: 1.8; color: #888; font-size: 13px;">{brief}</p>\n'
 
         news_html += '</div>\n'
         news_html += '</section>\n\n'
@@ -968,6 +1080,9 @@ def main():
 
     # 2.6 规范化标题长度
     categorized_news = normalize_titles(categorized_news)
+
+    # 2.7 生成新闻简报
+    categorized_news = generate_news_briefs(categorized_news)
 
     # 3. 格式化为 HTML（同时生成智能摘要）
     log("正在格式化新闻...")
