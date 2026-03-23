@@ -26,7 +26,6 @@ from datetime import datetime, timedelta
 SSL_VERIFY = False
 
 import requests
-from zhdate import ZhDate
 
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
@@ -174,33 +173,37 @@ def validate_news_content(html_content: str) -> dict:
 def get_traditional_lunar_date(dt):
     """获取传统农历日期格式：乙巳年冬月廿七"""
     try:
+        from zhdate import ZhDate
+    except ImportError:
+        # 让 --check-env 能正常输出依赖缺失，而不是在启动阶段直接崩溃
+        return ""
+
+    try:
         zh_date = ZhDate.from_datetime(dt)
 
         # 获取天干地支年
         chinese_full = zh_date.chinese()
         parts = chinese_full.split()
-        gz_year = parts[1] if len(parts) >= 2 else ''
+        gz_year = parts[1] if len(parts) >= 2 else ""
 
         # 农历月份（传统写法）
-        months = ['', '正月', '二月', '三月', '四月', '五月', '六月',
-                  '七月', '八月', '九月', '十月', '冬月', '腊月']
-        lunar_month = months[zh_date.lunar_month] if 0 < zh_date.lunar_month <= 12 else ''
+        months = ["", "正月", "二月", "三月", "四月", "五月", "六月",
+                  "七月", "八月", "九月", "十月", "冬月", "腊月"]
+        lunar_month = months[zh_date.lunar_month] if 0 < zh_date.lunar_month <= 12 else ""
 
         # 农历日期（传统写法）
-        days = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
-                '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
-                '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']
-        lunar_day = days[zh_date.lunar_day] if 0 < zh_date.lunar_day <= 30 else ''
+        days = ["", "初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
+                "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+                "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"]
+        lunar_day = days[zh_date.lunar_day] if 0 < zh_date.lunar_day <= 30 else ""
 
-        result = f'{gz_year}{lunar_month}{lunar_day}'
-        if result:  # 如果成功转换，返回结果
+        result = f"{gz_year}{lunar_month}{lunar_day}"
+        if result:
             return result
-        else:  # 如果转换为空，返回简化显示
-            return zh_date.chinese()  # 返回完整中文显示作为回退
+        return zh_date.chinese()
     except Exception as e:
-        # 真正出错时，记录详细日志并返回空（但不会让程序崩溃）
+        # 真正出错时记录日志，保持流程可继续
         print(f"警告：农历日期转换失败 ({dt.strftime('%Y-%m-%d')}): {type(e).__name__}: {e}")
-        # 即使出错，也尝试返回基础的星期信息作为补充
         return ""
 
 def log(message):
@@ -301,7 +304,7 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
             ["python3", rss_script],
             capture_output=True,
             text=True,
-            timeout=420,  # 7分钟超时时间，确保有足够时间收集真实新闻
+            timeout=900,  # 15分钟超时，适配多源RSS采集与网络抖动
             cwd=SCRIPT_DIR
         )
 
@@ -360,7 +363,7 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
         return html_content
 
     except subprocess.TimeoutExpired as e:
-        log(f"RSS 收集超时 (420秒): {e}")
+        log(f"RSS 收集超时 (900秒): {e}")
         return None
     except FileNotFoundError as e:
         log(f"RSS 收集器脚本未找到: {e}")
@@ -480,7 +483,7 @@ def publish_to_wechat(title, content, cover_url):
         try:
             error_detail = response.json()
             log(f"错误详情: {error_detail}")
-        except:
+        except Exception:
             log(f"响应内容: {response.text[:500]}")
         return False
     except Exception as e:
@@ -490,7 +493,7 @@ def publish_to_wechat(title, content, cover_url):
 def main():
     """主函数"""
     # 解析命令行参数
-    parser = argparse.ArgumentParser(description="每日科技新闻自动收集和发布脚本 V4.0")
+    parser = argparse.ArgumentParser(description="每日科技新闻自动收集和发布脚本 V4.1")
     parser.add_argument("--check-env", action="store_true", help="仅检查环境依赖")
     parser.add_argument("--dry-run", action="store_true", help="试运行（不发布）")
     parser.add_argument("--appid", type=str, help="指定公众号 AppID")
@@ -513,7 +516,7 @@ def main():
         log(f"使用指定的 AppID: {APPID}")
 
     log("=" * 50)
-    log("开始执行每日新闻收集任务 V4.0")
+    log("开始执行每日新闻收集任务 V4.1")
     log(f"工作目录: {WORK_DIR}")
     log(f"脚本目录: {SCRIPT_DIR}")
     if args.dry_run:
@@ -571,7 +574,7 @@ def main():
     cover_url = generate_cover_image(f"{today.month}月{today.day}日AI科技财经日报")
     if not cover_url:
         log("封面图生成失败，将不使用封面图发布")
-        cover_url = ""
+        cover_url = None
 
     # 试运行模式：不发布
     if args.dry_run:
@@ -601,28 +604,8 @@ def main():
     if success:
         log("发布成功！")
 
-        # 5. Git提交(仅在发布成功后提交)
-        try:
-            # 配置Git用户信息
-            subprocess.run(["git", "config", "user.name", "GitHub Actions"], check=True, cwd=WORK_DIR)
-            subprocess.run(["git", "config", "user.email", "actions@github.com"], check=True, cwd=WORK_DIR)
-
-            # 添加新文件（使用与 rss_news_collector 一致的 today_str 格式）
-            subprocess.run(["git", "add", f"news_{today_str}.md"], check=True, cwd=WORK_DIR)
-            subprocess.run(["git", "add", f"raw_news_{today_str}.json"], check=False, cwd=WORK_DIR)  # JSON可能不存在
-
-            # 提交
-            commit_msg = f"chore: 自动发布{today.year}年{today.month}月{today.day}日科技日报"
-            subprocess.run(["git", "commit", "-m", commit_msg], check=True, cwd=WORK_DIR)
-
-            # 推送到远程
-            subprocess.run(["git", "push"], check=True, cwd=WORK_DIR)
-
-            log("✅ 文件已提交到Git仓库")
-        except subprocess.CalledProcessError as e:
-            log(f"⚠️ Git提交失败(不影响发布): {e}")
-        except Exception as e:
-            log(f"⚠️ Git操作异常(不影响发布): {e}")
+        # 5. 不再在 CI 中提交回仓库，避免与 .gitignore 冲突导致误报
+        log("发布流程完成（已跳过自动 Git 提交）")
 
         log("任务完成")
         log("=" * 50)
