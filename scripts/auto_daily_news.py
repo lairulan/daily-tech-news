@@ -28,11 +28,11 @@ SSL_VERIFY = False
 import requests
 
 # 配置
-WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY")
+WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY", "xhs_94c57efb6ea323e2496487fc2a5bcd8a")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AQ.Ab8RN6LKLi1gwnul0aGEdgXzolnfIKYhiovTTsf-yr36z8yDeg")
 # 从环境变量读取 AppID，默认使用三更AI
-APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")
+APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")  # 三更AI
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -465,9 +465,10 @@ def publish_to_wechat(title, content, cover_url):
         "content": content,
         "contentFormat": "html",
         "summary": summary or "AI、科技、财经领域最新资讯汇总",
-        "coverImage": cover_url,
         "articleType": "news"
     }
+    if cover_url:
+        payload["coverImage"] = cover_url
 
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30, verify=SSL_VERIFY)
