@@ -33,6 +33,7 @@ DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AQ.Ab8RN6LKLi1gwnul0aGEdgXzolnfIKYhiovTTsf-yr36z8yDeg")
 # 从环境变量读取 AppID，默认使用三更AI
 APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")  # 三更AI
+GEMINI_AVAILABLE = True
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -234,7 +235,9 @@ def extract_text_from_html(html_content):
 
 def call_gemini_api(prompt, max_tokens=2000):
     """调用 Google Gemini API（主力）"""
-    if not GOOGLE_API_KEY:
+    global GEMINI_AVAILABLE
+
+    if not GOOGLE_API_KEY or not GEMINI_AVAILABLE:
         return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
@@ -248,7 +251,8 @@ def call_gemini_api(prompt, max_tokens=2000):
         result = response.json()
         return result["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
-        log(f"Gemini API 调用失败: {e}")
+        GEMINI_AVAILABLE = False
+        log(f"Gemini API 调用失败，本轮停用 Gemini: {e}")
         return None
 
 
@@ -257,7 +261,8 @@ def call_llm_api(prompt, max_tokens=2000):
     result = call_gemini_api(prompt, max_tokens)
     if result:
         return result
-    log("Gemini 失败，尝试豆包兜底...")
+    if GOOGLE_API_KEY:
+        log("Gemini 不可用，尝试豆包兜底...")
     return call_doubao_api(prompt, max_tokens)
 
 

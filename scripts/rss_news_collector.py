@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-基于 RSS 订阅的新闻收集脚本 V4.2.0
+基于 RSS 订阅的新闻收集脚本 V4.3.1
 纯 RSS 模式，48 个源，24h 时间窗口，100% 真实新闻
 
 特性：
@@ -8,10 +8,13 @@
 - RSSHub 多实例 fallback 机制（财经源高可用）
 - 并发 RSS 采集（10线程），采集时间从 7min 压缩到 ~30s
 - 分类补救机制（不足 3 条时自动补充）
-- 新闻正文简报：每条新闻附带1-2句40-60字简报
+- 单行新闻简讯：每条新闻只保留一行事实型简讯
+- RSS 源健康摘要：记录空返回源与 fallback 命中情况
+- 强过滤与主体纠偏：减少栏目标题、导航噪音和泛化主体
 - 模糊去重：字符级 Jaccard 相似度（阈值 0.6）
 - HTML 清洗增强：CDATA + unescape + content:encoded 解析
 - 分类 JSON 解析正则 fallback
+- 入选新闻原文上下文补充：补抓页面标题/导语，减少主体缺失
 - 使用 certifi 正确验证 SSL 证书
 - 纯 RSS 模式，不使用 AI 补充新闻
 """
@@ -74,6 +77,85 @@ except ImportError:
 
 # 速率限制配置
 REQUEST_DELAY = 0.5  # 请求间隔（秒）
+HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+}
+ARTICLE_CONTEXT_CACHE: Dict[str, Dict[str, str]] = {}
+GEMINI_AVAILABLE = True
+LAST_RSS_HEALTH: List[Dict[str, str]] = []
+
+GENERIC_SUBJECT_WORDS = {
+    "项目", "模型", "平台", "系统", "产品", "事项", "计划", "团队", "机构", "公司",
+    "企业", "组织", "方案", "应用", "服务", "工具", "赛道", "领域", "榜单",
+    "开源项目", "开源模型", "开源OCR项目", "国产世界模型", "这类大模型", "该模型",
+    "该项目", "该平台", "该系统", "这类模型", "这一项目", "这一模型",
+    "OCR", "AI", "UI", "Pro", "Lite", "技术科技", "这家公司", "年入8亿",
+}
+
+SITE_NOISE_TOKENS = {
+    "量子位", "QbitAI", "IT之家", "RuanMei.com", "少数派", "爱范儿", "雷峰网",
+    "钛媒体", "OSCHINA", "Wired", "TechCrunch", "Engadget", "Ars Technica",
+    "MarketWatch", "Forbes", "CNBC", "VentureBeat", "Yahoo Finance",
+    "Win10", "Win11", "AI慕课学院", "极客购", "要知App", "软媒魔方", "IT圈",
+}
+
+HARD_EXCLUDE_KEYWORDS = [
+    "派早报",
+    "早报",
+    "日报",
+    "观察",
+    "周观察",
+    "征文",
+    "指南",
+    "评测",
+    "一览表",
+    "背后",
+    "博弈",
+    "盘点",
+    "合集",
+]
+
+ACTION_VERBS = (
+    "发布", "推出", "宣布", "上线", "曝光", "登顶", "完成", "开启", "停运", "停服",
+    "停更", "停用", "停止运营", "冲刺", "上市", "开源", "收购", "并购", "融资",
+    "更新", "升级", "亮相", "发布会", "发布了",
+)
+
+RESULT_KEYWORDS = (
+    "领先", "超越", "霸榜", "稳居第一", "第一", "融资", "估值", "量产", "发布",
+    "升级", "修复", "削减", "离职", "定档", "聆讯", "营收", "同比", "支持",
+    "专享", "登顶", "开源", "亮相", "通过", "集体出走", "流向微软",
+)
+
+TIME_MARKER_PATTERNS = [
+    r"\d{4}年\s*\d{1,2}月\s*\d{1,2}日",
+    r"\d{4}年\s*\d{1,2}月",
+    r"\d{4}年",
+    r"\d{1,2}\s*月\s*\d{1,2}\s*日",
+    r"\d{1,2}\s*月",
+    r"Q[1-4]",
+    r"第[一二三四]季度",
+    r"上半年",
+    r"下半年",
+    r"今年",
+    r"明年",
+    r"后年",
+    r"本月",
+    r"下月",
+    r"本周",
+    r"下周",
+    r"春季",
+    r"夏季",
+    r"秋季",
+    r"冬季",
+    r"年内",
+    r"年底",
+    r"月内",
+    r"月底",
+    r"上旬",
+    r"中旬",
+    r"下旬",
+]
 
 # 排除规则：过滤掉无效或低质量的标题
 TITLE_EXCLUDE_PATTERNS = [
@@ -154,6 +236,11 @@ def is_valid_news_title(title: str) -> bool:
 
     # 清理标题
     title = title.strip()
+
+    # 强过滤：无论是否含科技关键词，这些类型都不适合新闻简讯
+    for keyword in HARD_EXCLUDE_KEYWORDS:
+        if keyword in title:
+            return False
 
     # 检查排除模式
     for pattern in TITLE_EXCLUDE_PATTERNS:
@@ -311,12 +398,7 @@ def is_similar_title(t1, t2, threshold=0.6):
 def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict]:
     """获取 RSS 条目"""
     try:
-        # 设置用户代理
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
-
-        req = urllib.request.Request(url, headers=headers)
+        req = urllib.request.Request(url, headers=HTTP_HEADERS)
         with urllib.request.urlopen(req, timeout=30, context=ssl_context) as response:
             content = response.read()
 
@@ -344,6 +426,7 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
                     title_text = title_elem.text.strip()
                     break
             item['title'] = title_text if title_text else '无标题'
+            item['original_title'] = item['title']
 
             # 描述/摘要（优先 content:encoded 获取更丰富正文）
             desc_text = ''
@@ -354,6 +437,7 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
                     break
             desc_text = clean_html_content(desc_text)
             item['summary'] = desc_text[:500] if desc_text else ''
+            item['original_summary'] = item['summary']
 
             # 链接
             link_text = ''
@@ -414,24 +498,37 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
         return []
 
 def fetch_source_with_fallback(source: Dict) -> tuple:
-    """并发辅助函数：获取单个 RSS 源（含 fallback），返回 (source_name, items)"""
+    """并发辅助函数：获取单个 RSS 源（含 fallback），返回抓取结果与健康信息。"""
     items = fetch_rss_items(source['url'], source['limit'])
+    used_url = source['url']
+    used_fallback = False
 
     # 如果主URL失败且有fallback，尝试备选URL
     if len(items) == 0 and 'fallback_urls' in source:
         for fallback_url in source['fallback_urls']:
             items = fetch_rss_items(fallback_url, source['limit'])
             if len(items) > 0:
+                used_url = fallback_url
+                used_fallback = True
                 break
 
     for item in items:
         item['rss_source'] = source['name']
 
-    return source['name'], items
+    return {
+        "source_name": source['name'],
+        "items": items,
+        "used_url": used_url,
+        "used_fallback": used_fallback,
+        "status": "ok" if items else "empty",
+        "attempted_urls": [source['url']] + source.get('fallback_urls', []),
+    }
 
 
 def collect_all_news() -> List[Dict]:
     """收集所有 RSS 新闻（并发模式，10线程），支持 fallback URLs"""
+    global LAST_RSS_HEALTH
+
     # 计算时间范围用于日志（过去24小时）
     now = datetime.now().astimezone()
     cutoff_time = now - timedelta(hours=24)
@@ -440,13 +537,36 @@ def collect_all_news() -> List[Dict]:
     log(f"时间过滤范围: 过去24小时 ({cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
 
     all_items = []
+    source_health = []
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_source_with_fallback, source): source for source in ALL_RSS_SOURCES}
         for future in as_completed(futures):
-            source_name, items = future.result()
+            result = future.result()
+            source_name = result["source_name"]
+            items = result["items"]
             log(f"  - {source_name}: 获取 {len(items)} 条")
             all_items.extend(items)
+            source_health.append({
+                "source": source_name,
+                "item_count": len(items),
+                "status": result["status"],
+                "used_fallback": result["used_fallback"],
+                "used_url": result["used_url"],
+            })
+
+    LAST_RSS_HEALTH = sorted(source_health, key=lambda item: (item["item_count"], item["source"]))
+    healthy_sources = [item for item in LAST_RSS_HEALTH if item["item_count"] > 0]
+    empty_sources = [item for item in LAST_RSS_HEALTH if item["item_count"] == 0]
+    fallback_sources = [item for item in LAST_RSS_HEALTH if item["used_fallback"]]
+    log(
+        f"RSS源健康检查: 正常{len(healthy_sources)}个，空返回{len(empty_sources)}个，"
+        f"fallback命中{len(fallback_sources)}个"
+    )
+    if empty_sources:
+        log(f"  空返回源: {', '.join(item['source'] for item in empty_sources[:12])}")
+    if fallback_sources:
+        log(f"  fallback源: {', '.join(item['source'] for item in fallback_sources[:8])}")
 
     # 去重（基于标题）
     seen_titles = set()
@@ -584,118 +704,710 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
         log(f"原始结果: {result[:500]}")
         return {"AI 领域": [], "科技动态": [], "财经要闻": []}
 
-def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
-    """使用 AI 规范化标题长度，确保排版整齐
+def fetch_article_context(url: str) -> Dict[str, str]:
+    """抓取原文页面上下文，用于补全主体名和关键信息。"""
+    if not url or not url.startswith("http"):
+        return {"page_title": "", "page_h1": "", "meta_description": "", "page_excerpt": ""}
 
-    Args:
-        categorized: 分类后的新闻字典
+    if url in ARTICLE_CONTEXT_CACHE:
+        return dict(ARTICLE_CONTEXT_CACHE[url])
 
-    Returns:
-        标题规范化后的新闻字典
-    """
-    log("正在规范化标题长度...")
+    context = {
+        "page_title": "",
+        "page_h1": "",
+        "meta_description": "",
+        "page_excerpt": "",
+    }
 
-    # 收集所有标题
-    all_titles = []
+    try:
+        response = requests.get(url, headers=HTTP_HEADERS, timeout=15)
+        response.raise_for_status()
+        raw_html = response.text
 
-    for category, items in categorized.items():
+        title_match = re.search(r"<title>(.*?)</title>", raw_html, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            context["page_title"] = clean_html_content(title_match.group(1))[:200]
+
+        h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", raw_html, re.IGNORECASE | re.DOTALL)
+        if h1_match:
+            context["page_h1"] = clean_html_content(h1_match.group(1))[:200]
+
+        meta_match = re.search(
+            r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\'](.*?)["\']',
+            raw_html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if meta_match:
+            context["meta_description"] = clean_html_content(meta_match.group(1))[:300]
+
+        text_html = re.sub(r"<script[^>]*>.*?</script>", " ", raw_html, flags=re.IGNORECASE | re.DOTALL)
+        text_html = re.sub(r"<style[^>]*>.*?</style>", " ", text_html, flags=re.IGNORECASE | re.DOTALL)
+        text_html = re.sub(r"<noscript[^>]*>.*?</noscript>", " ", text_html, flags=re.IGNORECASE | re.DOTALL)
+        context["page_excerpt"] = clean_html_content(text_html)[:1500]
+    except Exception as e:
+        log(f"抓取原文上下文失败 [{url}]: {e}")
+
+    ARTICLE_CONTEXT_CACHE[url] = context
+    return dict(context)
+
+
+def enrich_selected_news_context(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
+    """为入选新闻补充原文页面标题/导语，降低主体缺失概率。"""
+    log("正在补充入选新闻的原文上下文...")
+
+    total = 0
+    enriched = 0
+    for items in categorized.values():
         for item in items:
-            original_title = item.get('title', '')
-            all_titles.append(original_title)
+            total += 1
+            item.setdefault("original_title", item.get("title", ""))
+            item.setdefault("original_summary", item.get("summary", ""))
+            context = fetch_article_context(item.get("link", ""))
+            item.update(context)
+            if any(context.values()):
+                enriched += 1
 
-    if not all_titles:
-        return categorized
+    log(f"原文上下文补充完成: {enriched}/{total} 条")
+    return categorized
 
-    # 构建标题优化 prompt
-    titles_text = ""
-    for i, title in enumerate(all_titles, 1):
-        titles_text += f"{i}. {title}\n"
 
-    prompt = f"""你是专业中文新闻编辑，将以下新闻标题改写为30-42字的**中文**新闻简讯。
+def build_source_context(item: Dict) -> str:
+    """聚合原标题、摘要和原文上下文，作为改写依据。"""
+    parts = [
+        item.get("original_title", "") or item.get("title", ""),
+        item.get("original_summary", "") or item.get("summary", ""),
+        item.get("page_title", ""),
+        item.get("page_h1", ""),
+        item.get("meta_description", ""),
+        item.get("page_excerpt", ""),
+    ]
+    return re.sub(r"\s+", " ", " ".join(p for p in parts if p)).strip()
 
-原始标题：
-{titles_text}
 
-【铁律——违反任何一条即为失败】
+def extract_time_markers(text: str) -> List[str]:
+    """提取标题中的时间表达，避免模型引入原文里没有的时间信息。"""
+    markers = []
+    if not text:
+        return markers
 
-**1. 所有输出必须是中文**
-- 英文标题必须完整翻译为中文，禁止输出英文句子
-- 仅允许保留品牌名/产品名的英文原文（如OpenAI、iPhone、Tesla、GPT-4）
-- 除品牌名外，标题中不允许出现任何英文单词
+    for pattern in TIME_MARKER_PATTERNS:
+        for match in re.finditer(pattern, text):
+            marker = re.sub(r"\s+", "", match.group(0).strip())
+            if marker and marker not in markers:
+                markers.append(marker)
 
-**2. 主语必须具体，禁止泛化**
-- ✅ 必须保留原标题中的真实主体：公司名、人名、机构名、产品名
-  例：OpenAI、苹果、特斯拉、谷歌、华为、MIT、斯坦福大学、DeepSeek
-- ❌ 严禁用以下泛化词替换具体名称：
-  "科研团队"、"研发团队"、"行业机构"、"消息人士"、"第三方机构"、"分析机构"、"业内人士"
-- 原标题本身就没有具体名称时（如匿名来源），才允许用"研究人员"、"分析人士"
+    return markers
 
-**3. 字数：严格30-42字（含标点），少于30字视为不合格，每条描述单一事件**
 
-**4. 格式：主体+动作+结果，以句号或逗号结尾**
+def build_allowed_time_markers(item: Dict) -> List[str]:
+    """构建该新闻允许出现的时间表达集合。"""
+    markers = extract_time_markers(build_source_context(item))
+    parsed_time = item.get("parsed_time", "")
 
-示例改写：
-原: MIT develops heart failure AI model predicting one-year patient deterioration
-改: MIT研究人员开发心力衰竭预后AI模型，可预测患者一年内病情恶化，精准度超过现有临床标准。
+    if parsed_time:
+        try:
+            dt = datetime.strptime(parsed_time, "%Y-%m-%d %H:%M:%S")
+            for marker in (
+                f"{dt.year}年",
+                f"{dt.month}月",
+                f"{dt.month}月{dt.day}日",
+            ):
+                if marker not in markers:
+                    markers.append(marker)
+        except ValueError:
+            pass
 
-原: Nvidia Omniverse platform accelerates industrial AI design workflows
-改: 英伟达Omniverse平台发布工业AI设计套件，整合数字孪生技术，大幅提升制造业多环节协作效率。
+    return markers
 
-原: Apple cuts App Store commission rates in China
-改: 苹果宣布下调中国区App Store佣金费率，降幅约X%，利好国内中小开发者降低运营成本。
 
-按原顺序每行输出一个改写后的标题，不要序号："""
+def is_generic_subject(subject: str) -> bool:
+    """判断主体是否过于泛化。"""
+    subject = re.sub(r"\s+", "", subject or "")
+    if not subject:
+        return True
 
-    result = call_llm_api(prompt, max_tokens=1500)
+    if subject in GENERIC_SUBJECT_WORDS:
+        return True
+    if subject in SITE_NOISE_TOKENS:
+        return True
+    if re.fullmatch(r"\d+(?:\.\d+)?", subject):
+        return True
+    if re.fullmatch(r"[A-Z]{1,4}\d*", subject):
+        return True
+    if re.fullmatch(r"Win\d+(?:Win\d+)?", subject):
+        return True
+
+    if subject.startswith(("目前", "当前", "针对", "关于", "这类", "该类", "这一", "该", "这个")):
+        return True
+
+    for generic in GENERIC_SUBJECT_WORDS:
+        if subject in {f"中国{generic}", f"国产{generic}", f"全球{generic}"}:
+            return True
+
+    return False
+
+
+def extract_subject_candidates(text: str) -> List[str]:
+    """从原始材料中提取可能的主体候选，用于约束标题改写。"""
+    if not text:
+        return []
+
+    candidates = []
+    seen = set()
+
+    def add_candidate(raw: str):
+        candidate = clean_html_content(raw)
+        candidate = candidate.strip(" ,，。：:；;（）()【】[]“”\"'")
+        if not candidate or len(candidate) < 2 or len(candidate) > 40:
+            return
+        compact = re.sub(r"\s+", "", candidate)
+        if compact.lower() in {"github", "star", "stars", "news", "today"}:
+            return
+        if is_generic_subject(compact):
+            return
+        if compact not in seen:
+            seen.add(compact)
+            candidates.append(candidate)
+
+    model_name_pattern = r"\b[A-Za-z]+[A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)+(?:\s+[A-Za-z0-9.+\-]+)?\b"
+    camel_case_pattern = r"\b[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]+)+\b"
+    english_pattern = r"\b[A-Za-z][A-Za-z0-9.+\-]*(?:\s+[A-Za-z0-9.+\-]+){0,3}\b"
+    for pattern in (model_name_pattern, camel_case_pattern, english_pattern):
+        for match in re.finditer(pattern, text):
+            token = match.group(0).strip()
+            compact = token.replace(" ", "")
+            strong_token = (
+                any(ch.isdigit() for ch in compact)
+                or "-" in compact
+                or "." in compact
+                or any(ch.isupper() for ch in compact[1:])
+            )
+            if strong_token:
+                add_candidate(token)
+
+    organization_pattern = r"([A-Za-z0-9\u4e00-\u9fa5·\-\.\s]{2,30}(?:AI实验室|研究院|研究所|实验室|集团|公司|科技|大学|学院|研究中心|工厂|银行))"
+    for match in re.finditer(organization_pattern, text):
+        token = match.group(0).strip()
+        add_candidate(token)
+
+    verb_group = "|".join(ACTION_VERBS)
+    prefix_pattern = rf"([A-Za-z0-9\u4e00-\u9fa5·\-\.\s]{{2,30}}?)(?:正式|日前|将|已|最新|刚刚|成功|全面|火速)?(?:{verb_group})"
+    for match in re.finditer(prefix_pattern, text):
+        add_candidate(match.group(1))
+
+    finance_prefix_pattern = r"([A-Za-z0-9\u4e00-\u9fa5·\-\.\s]{2,24}?)(?:营收|年报|财报|估值|上市|融资|聆讯|并购|收购|交付|涨停|量产)"
+    for match in re.finditer(finance_prefix_pattern, text):
+        add_candidate(match.group(1))
+
+    suffix_pattern = r"([A-Za-z0-9\u4e00-\u9fa5·\-\.\s]{2,30}(?:实验室|研究院|研究所|集团|公司|大学|学院|工厂|银行|框架|版本|笔记本|手机|大模型|模型|系统|计划))"
+    for match in re.finditer(suffix_pattern, text):
+        add_candidate(match.group(1))
+
+    return candidates[:10]
+
+
+def normalize_material_text(text: str) -> str:
+    """清理素材句子里的站点噪音和时间前缀。"""
+    text = clean_html_content(text)
+    if not text:
+        return ""
+
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"IT之家\s*\d+\s*月\s*\d+\s*日消息[，,:：]?", "", text)
+    text = re.sub(r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}", "", text)
+    text = re.sub(r"来源[:：]\S+", "", text)
+    text = re.sub(r"量子位\s*\|\s*公众号\s*QbitAI", "", text)
+    text = re.sub(r"首页\s+资讯.*?扫码关注量子位", "", text)
+    text = re.sub(r"推荐快报广场.*?视频投稿App下载", "", text)
+    text = re.sub(r"首页\s+IT圈.*?Win11\s+专题", "", text)
+    text = re.sub(r"您正在使用IE低版浏览器.*?极客购", "", text)
+    text = re.sub(r"-->\s*OSCHINA\s*-\s*开源\s*×\s*AI\s*·\s*开发者生态社区", "", text)
+    text = re.sub(r"\s*[–\-|｜]\s*(量子位|IT之家|爱范儿|雷峰网|OSCHINA|钛媒体官方网站?)\s*$", "", text)
+    text = re.sub(r"^[，,:：;；、\-\s]+", "", text)
+    return text.strip()
+
+
+def compact_title_text(title: str) -> str:
+    """压缩标题中的无意义空格和冗余标点。"""
+    title = normalize_material_text(title)
+    title = re.sub(r"(\d)\s+月\s+(\d+)\s+日", r"\1月\2日", title)
+    title = re.sub(r"(\d)\s+月", r"\1月", title)
+    title = re.sub(r"(\d)\s+日", r"\1日", title)
+    title = re.sub(r"\s*([，。！？：；])\s*", r"\1", title)
+    title = re.sub(r"\s{2,}", " ", title)
+    return title.strip(" ，,。；;")
+
+
+def score_subject_candidate(candidate: str, item: Dict) -> int:
+    """给主体候选打分，优先选择具体项目名和机构名。"""
+    if not candidate:
+        return -100
+
+    candidate = clean_html_content(candidate)
+    compact = re.sub(r"\s+", "", candidate)
+    lower_candidate = compact.lower()
+    if is_generic_subject(compact):
+        return -100
+    if compact in SITE_NOISE_TOKENS or lower_candidate in {token.lower() for token in SITE_NOISE_TOKENS}:
+        return -100
+
+    title_text = item.get("original_title", "") or item.get("title", "")
+    summary_text = item.get("original_summary", "") or item.get("summary", "")
+    page_title = item.get("page_title", "")
+    meta_description = item.get("meta_description", "")
+    page_excerpt = item.get("page_excerpt", "")
+
+    score = 0
+    if compact in title_text:
+        score += 6
+    if compact in summary_text:
+        score += 3
+    if compact in page_title:
+        score += 3
+    if compact in meta_description:
+        score += 2
+    if compact in page_excerpt:
+        score += 1
+
+    if re.search(rf"(领先|超越|击败|终结)[^。！？]*{re.escape(compact)}", summary_text + meta_description + page_excerpt):
+        score -= 4
+
+    if any(ch.isdigit() for ch in compact) or "-" in compact or "." in compact:
+        score += 4
+    if any(ch.isupper() for ch in compact[1:]):
+        score += 3
+    if re.search(r"(实验室|研究院|研究所|集团|公司|科技|大学|学院|中心|工厂|银行)$", compact):
+        score += 3
+    if 2 <= len(compact) <= 18:
+        score += 1
+    if len(compact) > 24:
+        score -= 3
+    if lower_candidate in {"qbitai", "it之家", "oschina"}:
+        score -= 6
+
+    return score
+
+
+def pick_best_subject(item: Dict) -> str:
+    """从素材中挑选最具体、最适合放进简讯里的主体名。"""
+    source_context = build_source_context(item)
+    candidates = extract_subject_candidates(source_context)
+    if not candidates:
+        return ""
+
+    scored = sorted(
+        ((score_subject_candidate(candidate, item), candidate) for candidate in candidates),
+        key=lambda pair: (-pair[0], len(pair[1]))
+    )
+
+    best_score, best_candidate = scored[0]
+    return best_candidate if best_score >= 4 else ""
+
+
+def is_title_specific_enough(item: Dict) -> bool:
+    """判断原标题是否已经足够具体，避免被规则兜底误伤。"""
+    original_title = compact_title_text(item.get("original_title", item.get("title", "")))
+    if not original_title or original_title.startswith(("目前", "当前", "针对", "关于", "这类", "该类", "这一", "这个")):
+        return False
+
+    if re.search(r"[A-Za-z]+[A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)+", original_title):
+        return True
+    if re.search(r"[A-Za-z0-9\u4e00-\u9fa5·]{2,20}(?:实验室|研究院|研究所|集团|公司|科技|工厂|银行)", original_title):
+        return True
+    if any(keyword in original_title for keyword in ACTION_VERBS + RESULT_KEYWORDS):
+        return True
+
+    subject = pick_best_subject(item)
+    return bool(subject and subject in original_title)
+
+
+def extract_fact_sentences(item: Dict, subject: str, related_entities: List[str]) -> List[str]:
+    """从标题、摘要和原文中抽取可用于生成简讯的事实句。"""
+    sentences = []
+    raw_texts = [
+        item.get("original_summary", "") or item.get("summary", ""),
+        item.get("meta_description", ""),
+        item.get("original_title", "") or item.get("title", ""),
+        item.get("page_title", ""),
+        item.get("page_h1", ""),
+    ]
+
+    for text in raw_texts:
+        cleaned = compact_title_text(text)
+        if cleaned:
+            sentences.append(cleaned)
+
+    excerpt = normalize_material_text(item.get("page_excerpt", ""))
+    for sentence in re.split(r"[。！？\n]", excerpt):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if len(sentence) > 90:
+            for clause in sentence.split("，"):
+                clause = clause.strip()
+                if clause:
+                    sentences.append(clause)
+            continue
+        sentences.append(sentence)
+
+    ranked = []
+    for sentence in sentences:
+        score = 0
+        if subject and subject in sentence:
+            score += 5
+        if any(entity and entity in sentence for entity in related_entities):
+            score += 3
+        if any(keyword in sentence for keyword in ACTION_VERBS + RESULT_KEYWORDS):
+            score += 4
+        if re.search(r"\d", sentence):
+            score += 2
+        if 12 <= len(sentence) <= 60:
+            score += 2
+        if any(token in sentence for token in SITE_NOISE_TOKENS):
+            score -= 4
+        if any(noise in sentence for noise in ("首页", "扫码关注", "公众号", "推荐快报", "订阅 RSS订阅")):
+            score -= 8
+        ranked.append((score, sentence))
+
+    ranked.sort(key=lambda pair: (-pair[0], len(pair[1])))
+    return [sentence for score, sentence in ranked if score >= 3][:12]
+
+
+def inject_specific_entity(sentence: str, subject: str, related_entities: List[str]) -> str:
+    """把摘要中的泛化主语替换成更具体的项目名。"""
+    sentence = compact_title_text(sentence)
+    for entity in related_entities:
+        if not entity or entity == subject or entity in sentence:
+            continue
+        if "开源模型" in sentence:
+            sentence = sentence.replace("开源模型", f"{entity}开源模型", 1)
+            break
+        if "OCR项目" in sentence:
+            sentence = sentence.replace("OCR项目", entity, 1)
+            break
+        if "世界模型" in sentence and "国产世界模型" in sentence:
+            sentence = sentence.replace("国产世界模型", entity, 1)
+            break
+        if "大模型" in sentence and any(ch.isdigit() for ch in entity):
+            sentence = sentence.replace("大模型", entity, 1)
+            break
+    return compact_title_text(sentence)
+
+
+def shorten_title(title: str, max_len: int = 52) -> str:
+    """尽量在不丢关键信息的前提下压缩标题长度。"""
+    title = compact_title_text(title)
+    if len(title) <= max_len:
+        return title
+
+    replacements = [
+        ("，并在与Polymarket人类交易市场的直接对比中展现出显著优势", "，直接对比人类交易者占优"),
+        ("，研发人员集体出走", "，核心团队多人离职"),
+        ("，苹果Vision Pro头显专享", "，Vision Pro专享"),
+        ("，目标2030年前开发", "，目标2030年前量产"),
+        ("，Find X9 Ultra、Find X9s Pro 手机等将至", "，Find X9系列等将至"),
+    ]
+    for old, new in replacements:
+        if old in title:
+            title = title.replace(old, new)
+            if len(title) <= max_len:
+                return compact_title_text(title)
+
+    if "，" in title:
+        clauses = [clause.strip() for clause in title.split("，") if clause.strip()]
+        compacted = clauses[0]
+        if len(clauses) > 1:
+            second = clauses[1]
+            if len(compacted) + len(second) + 1 <= max_len:
+                compacted = f"{compacted}，{second}"
+        title = compacted
+
+    if len(title) > max_len:
+        title = title[:max_len].rstrip("，,、；;：:")
+
+    return compact_title_text(title)
+
+
+def restore_precise_entities(item: Dict, title: str) -> str:
+    """尽量把模型省略掉的版本号或完整项目名补回标题。"""
+    title = compact_title_text(title)
+    source_context = build_source_context(item)
+    for entity in extract_subject_candidates(source_context):
+        if entity in title:
+            continue
+        if not (any(ch.isdigit() for ch in entity) or "-" in entity or "." in entity):
+            continue
+        variants = {
+            entity.replace(".0", ""),
+            entity.replace(".5", ""),
+            entity.split(".0")[0],
+        }
+        for variant in variants:
+            variant = variant.strip()
+            if variant and variant != entity and variant in title:
+                title = title.replace(variant, entity, 1)
+                break
+    return compact_title_text(title)
+
+
+def build_rule_based_rewrite(item: Dict, reason: str = "") -> Dict[str, str]:
+    """在 LLM 失败时，用主体+事实句规则兜底生成简讯。"""
+    subject = pick_best_subject(item)
+    source_context = build_source_context(item)
+    related_entities = [candidate for candidate in extract_subject_candidates(source_context) if candidate != subject]
+    fact_sentences = extract_fact_sentences(item, subject, related_entities)
+    if is_title_specific_enough(item):
+        original_first = compact_title_text(item.get("original_title", item.get("title", "")))
+        if original_first:
+            fact_sentences = [original_first] + [sentence for sentence in fact_sentences if sentence != original_first]
+
+    for sentence in fact_sentences:
+        candidate = inject_specific_entity(sentence, subject, related_entities)
+        if any(token in candidate for token in SITE_NOISE_TOKENS):
+            continue
+        if subject and subject not in candidate:
+            if candidate.startswith(ACTION_VERBS + RESULT_KEYWORDS):
+                candidate = f"{subject}{candidate}"
+            elif any(keyword in candidate for keyword in ("领先", "霸榜", "登顶", "稳居第一", "Elo")):
+                candidate = f"{subject}{candidate}"
+            else:
+                candidate = f"{subject}{candidate}"
+
+        candidate = shorten_title(candidate)
+        candidate = restore_precise_entities(item, candidate)
+        valid, _ = validate_rewritten_title(item, subject, candidate)
+        if valid:
+            return {"subject": subject, "title": candidate}
+
+    fallback_title = compact_title_text(item.get("original_title", item.get("title", "")))
+    fallback_title = inject_specific_entity(fallback_title, subject, related_entities)
+    if subject and subject not in fallback_title and fallback_title:
+        fallback_title = shorten_title(f"{subject}{fallback_title}")
+    else:
+        fallback_title = shorten_title(fallback_title)
+    fallback_title = restore_precise_entities(item, fallback_title)
+
+    return {
+        "subject": subject,
+        "title": fallback_title,
+    }
+
+
+def parse_json_payload(result: str, fallback):
+    """兼容 markdown code fence 的 JSON 解析。"""
     if not result:
-        log("标题规范化失败，使用原标题")
+        return fallback
+
+    cleaned = result.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```$", "", cleaned)
+        cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    for pattern in (r"\[[\s\S]*\]", r"\{[\s\S]*\}"):
+        match = re.search(pattern, cleaned)
+        if not match:
+            continue
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            continue
+
+    return fallback
+
+
+def validate_rewritten_title(item: Dict, subject: str, title: str) -> tuple:
+    """校验生成的新闻简讯是否满足事实性和可读性要求。"""
+    subject = clean_html_content(subject)
+    title = compact_title_text(title)
+
+    if not subject:
+        return False, "主体为空"
+    if is_generic_subject(subject):
+        return False, f"主体泛化: {subject}"
+
+    if not title:
+        return False, "标题为空"
+    if title.startswith(("目前", "当前", "针对", "关于", "这类", "该类", "这一", "这个")):
+        return False, f"标题出现空泛起手: {title[:12]}"
+    if any(token in title for token in SITE_NOISE_TOKENS):
+        return False, "标题混入站点名或栏目名"
+    if re.match(r"^\d{4,}", title):
+        return False, "标题以编号或补丁号起手"
+    if len(title) < 18 or len(title) > 52:
+        return False, f"标题长度异常: {len(title)}字"
+    if not is_valid_news_title(title):
+        return False, "标题未通过新闻有效性校验"
+
+    normalized_title = re.sub(r"\s+", "", title).lower()
+    normalized_subject = re.sub(r"\s+", "", subject).lower()
+    if normalized_subject not in normalized_title:
+        return False, f"标题未包含主体: {subject}"
+
+    allowed_time_markers = set(build_allowed_time_markers(item))
+    title_time_markers = extract_time_markers(title)
+    new_time_markers = [marker for marker in title_time_markers if marker not in allowed_time_markers]
+    if new_time_markers:
+        return False, f"新增原文中不存在的时间表达: {','.join(new_time_markers)}"
+
+    return True, ""
+
+
+def rewrite_single_title(item: Dict, reason: str = "") -> Dict[str, str]:
+    """单条回退改写，用更强约束修复主体泛化或时间错乱问题。"""
+    subject_hints = extract_subject_candidates(build_source_context(item))
+    forced_subject = pick_best_subject(item)
+    important_entities = [entity for entity in subject_hints if entity != forced_subject][:4]
+    prompt = f"""你是专业中文新闻编辑，请将这条新闻改写成一句可直接发布的中文新闻简讯。
+
+【新闻素材】
+- 来源: {item.get('rss_source', '')}
+- 发布时间: {item.get('parsed_time', '')}
+- 原始标题: {item.get('original_title', item.get('title', ''))}
+- RSS摘要: {item.get('original_summary', item.get('summary', ''))}
+- 页面标题: {item.get('page_title', '')}
+- 页面导语: {item.get('meta_description', '')}
+- 页面摘录: {item.get('page_excerpt', '')[:400]}
+- 主体候选: {', '.join(subject_hints) if subject_hints else '无'}
+- 固定主体: {forced_subject or '无'}
+- 需尽量保留的具体名词: {', '.join(important_entities) if important_entities else '无'}
+- 上次失败原因: {reason or '无'}
+
+【硬规则】
+1. 只写材料里已经明确出现的事实，不得脑补，不得评论。
+2. 如果材料里出现了具体项目名/模型名/产品名/公司名/机构名，标题必须明确写出该主体。
+3. 如果“固定主体”不为空，标题主体必须使用该名称，不得替换成更泛的说法。
+4. 如果“需尽量保留的具体名词”中有 OLMo、PaddleOCR、EchoZ-1.0、GigaWorld-1 等项目名，且它们与事件直接相关，标题里也要尽量带上。
+5. 严禁使用“项目”“模型”“平台”“系统”“事项”“计划”“这类大模型”等泛化主语替代具体名称。
+6. 不得引入材料里没有的时间表达；非必要不要写时间。
+7. 22-48字，单句，格式为“主体+动作+结果”。
+
+请只输出一个 JSON 对象：
+{{"subject": "...", "title": "..."}}"""
+
+    result = call_llm_api(prompt, max_tokens=600)
+    payload = parse_json_payload(result, {})
+    if isinstance(payload, dict):
+        return {
+            "subject": clean_html_content(str(payload.get("subject", ""))),
+            "title": clean_html_content(str(payload.get("title", ""))),
+        }
+    return {"subject": "", "title": ""}
+
+
+def normalize_titles(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
+    """将入选新闻改写为单行新闻简讯，保留具体主体并避免时间错乱。"""
+    log("正在将入选新闻改写为单行新闻简讯...")
+
+    selected_items = []
+    for items in categorized.values():
+        selected_items.extend(items)
+
+    if not selected_items:
         return categorized
 
-    # 解析优化后的标题
-    optimized_titles = [line.strip() for line in result.strip().split('\n') if line.strip()]
+    materials = []
+    for idx, item in enumerate(selected_items, 1):
+        source_context = build_source_context(item)
+        materials.append({
+            "id": idx,
+            "source": item.get("rss_source", ""),
+            "published": item.get("parsed_time", ""),
+            "original_title": item.get("original_title", item.get("title", "")),
+            "rss_summary": item.get("original_summary", item.get("summary", ""))[:240],
+            "page_title": item.get("page_title", ""),
+            "page_h1": item.get("page_h1", ""),
+            "meta_description": item.get("meta_description", ""),
+            "context_excerpt": source_context[:420],
+            "subject_hints": extract_subject_candidates(source_context),
+        })
 
-    # 去掉可能的序号
-    cleaned_titles = []
-    for title in optimized_titles:
-        # 移除可能的序号格式：1. 或 1、
-        title = re.sub(r'^\d+[.、]\s*', '', title)
-        title = title.strip()
-        cleaned_titles.append(title)
+    prompt = f"""你是专业中文新闻编辑，请将以下 {len(materials)} 条素材改写成适合公众号列表展示的“单行新闻简讯”。
 
-    # 逐条替换：每条标题独立验证，无效的保留原标题
-    title_index = 0
+新闻素材：
+{json.dumps(materials, ensure_ascii=False, indent=2)}
+
+【硬规则】
+1. 只写素材里已经明确出现的事实，不得脑补，不得评论，不得写空话。
+2. 如果素材里有具体项目名/模型名/产品名/公司名/机构名，必须在标题中明确写出，且不得用“项目”“模型”“平台”“系统”“事项”“计划”等泛词替代。
+3. 不得引入素材中不存在的时间表达；非必要不要写时间。
+4. 每条标题 22-42 字，单句，适合公众号新闻列表阅读。
+5. 标题格式统一为“主体 + 动作 + 结果”，避免“目前”“当前”“针对需要预测的事项”“这类大模型”等空泛表达。
+6. 仅允许保留品牌名/产品名的英文原文。
+
+【特别提醒】
+- 如果素材中出现 PaddleOCR、EchoZ-1.0、GigaWorld-1、Qwen3.5-Omni、IdeaPad 5i 这类具体名词，标题必须保留这些名称。
+- 优先选择最具体的主体，不要退化成“中国开源OCR项目”“国产世界模型”“这类大模型”。
+
+请只输出 JSON 数组，长度必须为 {len(materials)}，每项格式如下：
+{{"id": 1, "subject": "...", "title": "..."}}"""
+
+    result = call_llm_api(prompt, max_tokens=2500)
+    payload = parse_json_payload(result, [])
+
+    rewrite_map = {}
+    if isinstance(payload, list):
+        for record in payload:
+            if not isinstance(record, dict):
+                continue
+            rewrite_map[record.get("id")] = {
+                "subject": clean_html_content(str(record.get("subject", ""))),
+                "title": restore_precise_entities(
+                    selected_items[record.get("id") - 1],
+                    clean_html_content(str(record.get("title", "")))
+                ) if isinstance(record.get("id"), int) and 1 <= record.get("id") <= len(selected_items)
+                else clean_html_content(str(record.get("title", ""))),
+            }
+
     updated_count = 0
     kept_count = 0
-    for category, items in categorized.items():
-        for item in items:
-            old_title = item.get('title', '')
+    retry_count = 0
+    rule_fallback_count = 0
 
-            if title_index < len(cleaned_titles):
-                new_title = cleaned_titles[title_index]
-                title_index += 1
+    for idx, item in enumerate(selected_items, 1):
+        original_specific = is_title_specific_enough(item)
+        rewrite = rewrite_map.get(idx, {"subject": "", "title": ""})
+        valid, reason = validate_rewritten_title(item, rewrite.get("subject", ""), rewrite.get("title", ""))
 
-                # 验证新标题质量
-                chinese_chars = len(re.findall(r'[\u4e00-\u9fa5]', new_title))
-                english_words = len(re.findall(r'[a-zA-Z]{4,}', new_title))
-                is_mostly_english = english_words > 5
+        if not valid:
+            retry_count += 1
+            rewrite = rewrite_single_title(item, reason)
+            rewrite["title"] = restore_precise_entities(item, rewrite.get("title", ""))
+            valid, reason = validate_rewritten_title(item, rewrite.get("subject", ""), rewrite.get("title", ""))
 
-                if not is_valid_news_title(new_title):
-                    log(f"  保留原标题（AI生成无效）: {new_title[:30]}...")
-                    kept_count += 1
-                elif chinese_chars < 15:
-                    log(f"  保留原标题（中文字数不足{chinese_chars}字）: {new_title[:30]}...")
-                    kept_count += 1
-                elif is_mostly_english:
-                    log(f"  保留原标题（含过多英文）: {new_title[:30]}...")
-                    kept_count += 1
-                else:
-                    item['title'] = new_title
-                    log(f"  标题优化: {len(old_title)}字 → {len(new_title)}字")
-                    updated_count += 1
-            else:
-                kept_count += 1
+        if not valid and not original_specific:
+            rule_fallback_count += 1
+            rewrite = build_rule_based_rewrite(item, reason)
+            valid, reason = validate_rewritten_title(item, rewrite.get("subject", ""), rewrite.get("title", ""))
 
-    log(f"标题规范化完成: 更新{updated_count}条，保留原标题{kept_count}条")
+        if not valid and original_specific:
+            original_title = shorten_title(item.get("original_title", item.get("title", "")))
+            original_subject = pick_best_subject(item)
+            valid, reason = validate_rewritten_title(item, original_subject, original_title)
+            if valid:
+                rewrite = {"subject": original_subject, "title": original_title}
+
+        if valid:
+            old_title = item.get("title", "")
+            item["title"] = compact_title_text(rewrite["title"])
+            item["subject"] = rewrite["subject"]
+            log(f"  简讯改写: {len(old_title)}字 → {len(item['title'])}字")
+            updated_count += 1
+        else:
+            item["title"] = compact_title_text(item.get("original_title", item.get("title", "")))
+            item["subject"] = ""
+            log(f"  保留原标题（{reason}）: {item['title'][:40]}...")
+            kept_count += 1
+
+    log(
+        f"标题简讯化完成: 更新{updated_count}条，保留原标题{kept_count}条，"
+        f"单条回退{retry_count}条，规则兜底{rule_fallback_count}条"
+    )
     return categorized
 
 def generate_news_briefs(categorized: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
@@ -766,7 +1478,9 @@ def generate_news_briefs(categorized: Dict[str, List[Dict]]) -> Dict[str, List[D
 
 def call_gemini_api(prompt, max_tokens=2000):
     """调用 Google Gemini API（主力）"""
-    if not GOOGLE_API_KEY:
+    global GEMINI_AVAILABLE
+
+    if not GOOGLE_API_KEY or not GEMINI_AVAILABLE:
         return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
@@ -783,7 +1497,8 @@ def call_gemini_api(prompt, max_tokens=2000):
         result = response.json()
         return result["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
-        log(f"Gemini API 调用失败: {e}")
+        GEMINI_AVAILABLE = False
+        log(f"Gemini API 调用失败，本轮停用 Gemini: {e}")
         return None
 
 
@@ -823,7 +1538,8 @@ def call_llm_api(prompt, max_tokens=2000):
     result = call_gemini_api(prompt, max_tokens)
     if result:
         return result
-    log("Gemini 失败，尝试豆包兜底...")
+    if GOOGLE_API_KEY:
+        log("Gemini 不可用，尝试豆包兜底...")
     return call_doubao_api(prompt, max_tokens)
 
 def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "") -> str:
@@ -872,14 +1588,6 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
             margin_style = "margin: 0 0 15px 0" if i < len(items) else "margin: 0 0 0 0"
             # 序号使用圆形背景 + 白色数字（跟随板块颜色）
             news_html += f'  <p style="{margin_style}; line-height: 2; color: #333; font-size: 15px;"><span style="display: inline-block; min-width: 24px; height: 24px; background: {color}; color: #fff; font-weight: bold; font-size: 13px; text-align: center; line-height: 24px; border-radius: 50%; margin-right: 12px;">{i:02d}</span>{title}</p>\n'
-            # 简报正文（如有）
-            brief = item.get('brief', '')
-            if brief:
-                if not brief.endswith(('。', '！', '？', '…')):
-                    brief = brief + '。'
-                brief_margin = "margin: -10px 0 15px 0" if i < len(items) else "margin: -10px 0 0 0"
-                news_html += f'  <p style="{brief_margin}; padding-left: 36px; line-height: 1.8; color: #888; font-size: 13px;">{brief}</p>\n'
-
         news_html += '</div>\n'
         news_html += '</section>\n\n'
 
@@ -975,6 +1683,7 @@ def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], da
         "total_news": len(news_items),
         "categorized_count": {cat: len(items) for cat, items in categorized.items()},
         "summary": summary,  # 添加智能摘要
+        "rss_source_health": LAST_RSS_HEALTH,
         "all_news": news_items,
         "categorized_news": categorized
     }
@@ -1078,11 +1787,11 @@ def main():
     categorized_news = cleaned_categorized
     log(f"最终分类: {list(categorized_news.keys())}")
 
-    # 2.6 规范化标题长度
-    categorized_news = normalize_titles(categorized_news)
+    # 2.6 补充入选新闻的原文上下文
+    categorized_news = enrich_selected_news_context(categorized_news)
 
-    # 2.7 生成新闻简报
-    categorized_news = generate_news_briefs(categorized_news)
+    # 2.7 生成单行新闻简讯
+    categorized_news = normalize_titles(categorized_news)
 
     # 3. 格式化为 HTML（同时生成智能摘要）
     log("正在格式化新闻...")
