@@ -5,10 +5,6 @@ on:
   schedule:
     - cron: '30 0 * * *'
 
-  # Cloudflare Workers 触发（作为备份双保险）
-  repository_dispatch:
-    types: [daily-tech-news]
-
   # 支持手动触发
   workflow_dispatch:
 
