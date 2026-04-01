@@ -90,6 +90,12 @@ GENERIC_SUBJECT_WORDS = {
     "开源项目", "开源模型", "开源OCR项目", "国产世界模型", "这类大模型", "该模型",
     "该项目", "该平台", "该系统", "这类模型", "这一项目", "这一模型",
     "OCR", "AI", "UI", "Pro", "Lite", "技术科技", "这家公司", "年入8亿",
+    "版本", "恶意版本", "记者", "国行", "B轮融资", "A轮融资", "C轮融资",
+}
+
+GENERIC_SUBJECT_LOWER_WORDS = {
+    "meta-learning", "agent", "agents", "assistant", "assistants",
+    "copilot", "copilots", "wifi", "wi-fi",
 }
 
 SITE_NOISE_TOKENS = {
@@ -114,6 +120,29 @@ HARD_EXCLUDE_KEYWORDS = [
     "盘点",
     "合集",
 ]
+
+NON_NEWS_STYLE_KEYWORDS = [
+    "一手实测",
+    "好用吗",
+    "会复刻",
+    "不买账",
+    "结构性解法",
+    "终于来了",
+    "唯一代表",
+    "高端制造突围",
+    "具身领跑",
+]
+
+NON_NEWS_STYLE_PATTERNS = [
+    r"[?？!！]",
+    r"狂揽\d+\+?(?:Star|star|Stars|stars)",
+    r"全球\w*新王",
+    r"^从.+到.+[:：]",
+]
+
+GENERIC_ENGLISH_TOKENS = {
+    "agent", "agents", "meta-learning", "wifi", "wi-fi", "star", "stars",
+}
 
 ACTION_VERBS = (
     "发布", "推出", "宣布", "上线", "曝光", "登顶", "完成", "开启", "停运", "停服",
@@ -222,6 +251,57 @@ KEEP_KEYWORDS = [
 ]
 
 
+def count_chinese_chars(text: str) -> int:
+    """统计文本中的中文字符数。"""
+    return len(re.findall(r"[\u4e00-\u9fa5]", text or ""))
+
+
+def extract_ascii_tokens(text: str) -> List[str]:
+    """提取标题中的英文/数字混合词。"""
+    return re.findall(r"[A-Za-z][A-Za-z0-9.+\-]*", text or "")
+
+
+def has_non_news_style(title: str) -> bool:
+    """判断标题是否带有评测、评论、提问或营销腔。"""
+    title = re.sub(r"\s+", " ", (title or "")).strip()
+    if not title:
+        return False
+
+    if any(keyword in title for keyword in NON_NEWS_STYLE_KEYWORDS):
+        return True
+
+    for pattern in NON_NEWS_STYLE_PATTERNS:
+        if re.search(pattern, title, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def has_excessive_english(title: str) -> bool:
+    """过滤英文占比过高或以泛英文概念起手的标题。"""
+    title = re.sub(r"\s+", " ", (title or "")).strip()
+    if not title:
+        return False
+
+    english_tokens = extract_ascii_tokens(title)
+    if not english_tokens:
+        return False
+
+    chinese_count = count_chinese_chars(title)
+    lower_tokens = {token.lower() for token in english_tokens}
+
+    if lower_tokens & GENERIC_ENGLISH_TOKENS:
+        return True
+    if len(english_tokens) >= 5:
+        return True
+    if chinese_count < 6 and len(english_tokens) >= 2:
+        return True
+    if re.match(r"^[A-Za-z][A-Za-z0-9.+\-]*(?:\s+[A-Za-z][A-Za-z0-9.+\-]*)*", title) and chinese_count < 10:
+        return True
+
+    return False
+
+
 def is_valid_news_title(title: str) -> bool:
     """检查标题是否为有效的新闻标题
 
@@ -236,6 +316,11 @@ def is_valid_news_title(title: str) -> bool:
 
     # 清理标题
     title = title.strip()
+
+    if has_non_news_style(title):
+        return False
+    if has_excessive_english(title):
+        return False
 
     # 强过滤：无论是否含科技关键词，这些类型都不适合新闻简讯
     for keyword in HARD_EXCLUDE_KEYWORDS:
@@ -826,7 +911,11 @@ def is_generic_subject(subject: str) -> bool:
     if not subject:
         return True
 
+    lower_subject = subject.lower()
+
     if subject in GENERIC_SUBJECT_WORDS:
+        return True
+    if lower_subject in GENERIC_SUBJECT_LOWER_WORDS:
         return True
     if subject in SITE_NOISE_TOKENS:
         return True
@@ -835,6 +924,10 @@ def is_generic_subject(subject: str) -> bool:
     if re.fullmatch(r"[A-Z]{1,4}\d*", subject):
         return True
     if re.fullmatch(r"Win\d+(?:Win\d+)?", subject):
+        return True
+    if re.fullmatch(r"\d+(?:\.\d+)?(?:万|亿)?元?[A-Z]?轮(?:融资)?", subject):
+        return True
+    if re.search(r"(?:轮融资|亿元融资)$", subject) and re.search(r"\d", subject):
         return True
 
     if subject.startswith(("目前", "当前", "针对", "关于", "这类", "该类", "这一", "该", "这个")):
@@ -1008,6 +1101,8 @@ def is_title_specific_enough(item: Dict) -> bool:
     """判断原标题是否已经足够具体，避免被规则兜底误伤。"""
     original_title = compact_title_text(item.get("original_title", item.get("title", "")))
     if not original_title or original_title.startswith(("目前", "当前", "针对", "关于", "这类", "该类", "这一", "这个")):
+        return False
+    if has_non_news_style(original_title) or has_excessive_english(original_title):
         return False
 
     if re.search(r"[A-Za-z]+[A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)+", original_title):
@@ -1235,12 +1330,18 @@ def validate_rewritten_title(item: Dict, subject: str, title: str) -> tuple:
         return False, "标题为空"
     if title.startswith(("目前", "当前", "针对", "关于", "这类", "该类", "这一", "这个")):
         return False, f"标题出现空泛起手: {title[:12]}"
+    if has_non_news_style(title):
+        return False, "标题带有提问/评测/营销表达"
+    if has_excessive_english(title):
+        return False, "标题英文占比过高或含泛英文概念"
     if any(token in title for token in SITE_NOISE_TOKENS):
         return False, "标题混入站点名或栏目名"
     if re.match(r"^\d{4,}", title):
         return False, "标题以编号或补丁号起手"
     if len(title) < 18 or len(title) > 52:
         return False, f"标题长度异常: {len(title)}字"
+    if count_chinese_chars(title) < 8:
+        return False, "标题中文信息量不足"
     if not is_valid_news_title(title):
         return False, "标题未通过新闻有效性校验"
 

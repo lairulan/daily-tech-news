@@ -42,6 +42,29 @@ LOG_FILE = os.path.join(WORK_DIR, "logs", "daily-news.log")
 
 API_BASE = "https://wx.limyai.com/api/openapi"
 
+NON_NEWS_STYLE_KEYWORDS = [
+    "一手实测",
+    "好用吗",
+    "会复刻",
+    "不买账",
+    "结构性解法",
+    "终于来了",
+    "唯一代表",
+    "高端制造突围",
+    "具身领跑",
+]
+
+NON_NEWS_STYLE_PATTERNS = [
+    r"[?？!！]",
+    r"狂揽\d+\+?(?:Star|star|Stars|stars)",
+    r"全球\w*新王",
+    r"^从.+到.+[:：]",
+]
+
+GENERIC_ENGLISH_TOKENS = {
+    "agent", "agents", "meta-learning", "wifi", "wi-fi", "star", "stars",
+}
+
 def check_environment(verbose: bool = True) -> bool:
     """检查运行环境依赖
 
@@ -165,11 +188,75 @@ def validate_news_content(html_content: str) -> dict:
     if "微语" not in html_content and "微 语" not in html_content:
         warnings.append("可能缺少微语部分")
 
+    title_matches = re.findall(r"</span>(.*?)</p>", html_content, re.DOTALL | re.IGNORECASE)
+    news_titles = [re.sub(r"<[^>]+>", "", match).strip() for match in title_matches]
+    if news_titles and len(news_titles) < 15:
+        warnings.append(f"成稿新闻条数少于15条（当前 {len(news_titles)} 条）")
+
+    for index, title in enumerate(news_titles, 1):
+        if has_non_news_style(title):
+            errors.append(f"第{index}条标题不符合新闻简讯规范: {title[:28]}")
+        if has_excessive_english(title):
+            errors.append(f"第{index}条标题英文占比过高: {title[:28]}")
+        if count_chinese_chars(title) < 8:
+            errors.append(f"第{index}条标题中文信息量不足: {title[:28]}")
+
     return {
         "valid": len(errors) == 0,
         "errors": errors,
         "warnings": warnings,
     }
+
+
+def count_chinese_chars(text: str) -> int:
+    """统计文本中的中文字符数。"""
+    return len(re.findall(r"[\u4e00-\u9fa5]", text or ""))
+
+
+def extract_ascii_tokens(text: str) -> list[str]:
+    """提取标题中的英文/数字混合词。"""
+    return re.findall(r"[A-Za-z][A-Za-z0-9.+\-]*", text or "")
+
+
+def has_non_news_style(title: str) -> bool:
+    """判断标题是否带有提问、评测或营销腔。"""
+    title = re.sub(r"\s+", " ", (title or "")).strip()
+    if not title:
+        return False
+
+    if any(keyword in title for keyword in NON_NEWS_STYLE_KEYWORDS):
+        return True
+
+    for pattern in NON_NEWS_STYLE_PATTERNS:
+        if re.search(pattern, title, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def has_excessive_english(title: str) -> bool:
+    """过滤英文占比过高的标题。"""
+    title = re.sub(r"\s+", " ", (title or "")).strip()
+    if not title:
+        return False
+
+    english_tokens = extract_ascii_tokens(title)
+    if not english_tokens:
+        return False
+
+    chinese_count = count_chinese_chars(title)
+    lower_tokens = {token.lower() for token in english_tokens}
+
+    if lower_tokens & GENERIC_ENGLISH_TOKENS:
+        return True
+    if len(english_tokens) >= 5:
+        return True
+    if chinese_count < 6 and len(english_tokens) >= 2:
+        return True
+    if re.match(r"^[A-Za-z][A-Za-z0-9.+\-]*(?:\s+[A-Za-z][A-Za-z0-9.+\-]*)*", title) and chinese_count < 10:
+        return True
+
+    return False
 
 def get_traditional_lunar_date(dt):
     """获取传统农历日期格式：乙巳年冬月廿七"""
