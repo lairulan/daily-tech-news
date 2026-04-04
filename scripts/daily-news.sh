@@ -1,18 +1,13 @@
 #!/bin/bash
 #
 # daily-tech-news 定时执行脚本
-# 每天 8:00 自动收集前一天的新闻并发布到公众号
+# 本地 shell 包装脚本，兼容手动执行与外部调度
 #
 
 # 配置环境变量（请在系统环境中设置）
 # export WECHAT_API_KEY="your-wechat-api-key"
 # export DOUBAO_API_KEY="your-doubao-api-key"
-
-# 检查环境变量
-if [ -z "$WECHAT_API_KEY" ] || [ -z "$DOUBAO_API_KEY" ]; then
-    echo "错误: 请设置 WECHAT_API_KEY 和 DOUBAO_API_KEY 环境变量" | tee -a "$LOG_FILE"
-    exit 1
-fi
+# 或在项目根目录创建 .env.local 保存本机私有配置
 
 # 配置参数
 WORK_DIR="$HOME/.claude/skills/daily-tech-news"
@@ -20,8 +15,21 @@ LOG_FILE="$WORK_DIR/logs/daily-news.log"
 APPID="${WECHAT_APP_ID}"  # 从环境变量读取
 PYTHON_SCRIPT="$HOME/.claude/skills/wechat-publish/scripts/publish.py"
 
+# 如果 shell 环境未显式设置，则尝试从本地私有配置文件加载
+if [ -f "$WORK_DIR/.env.local" ]; then
+    set -a
+    . "$WORK_DIR/.env.local"
+    set +a
+fi
+
 # 创建日志目录
 mkdir -p "$WORK_DIR/logs"
+
+# 检查环境变量
+if [ -z "$WECHAT_API_KEY" ] || [ -z "$DOUBAO_API_KEY" ]; then
+    echo "错误: 请设置 WECHAT_API_KEY 和 DOUBAO_API_KEY，或在项目根目录创建 .env.local" | tee -a "$LOG_FILE"
+    exit 1
+fi
 
 # 记录开始时间
 echo "========================================" >> "$LOG_FILE"

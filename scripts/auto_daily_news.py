@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
 每日科技新闻自动收集和发布脚本 V4.1
-每天 8:00 自动运行，收集前一天的 AI/科技/财经新闻并发布到公众号
+支持本地手动运行和 GitHub Actions 定时发布
 
 特性：
-- 纯 RSS 模式，48 个源，100% 真实新闻
+- 纯 RSS 模式，46 个源，100% 真实新闻
 - RSSHub 多实例 fallback + 分类补救机制
+- AI 分类失败时自动切换规则分类兜底
+- 财经 RSS 供给不足时支持可选第三方 API 补源
 - 环境预检查 (--check-env)
 - 试运行模式 (--dry-run)
-- 环境变量配置 AppID (WECHAT_APP_ID)
-- 使用 certifi 正确验证 SSL 证书
+- 环境变量 / .env.local 配置 AppID 与 API key
+- 默认启用 TLS 校验，支持显式降级
 """
 
 import os
@@ -20,18 +22,51 @@ import subprocess
 import argparse
 from datetime import datetime, timedelta
 
-# SSL 验证配置
-# 注意: wx.limyai.com 证书 2026-03-20 过期，临时跳过验证
-# TODO: 证书续期后恢复为 certifi.where() 或 True
-SSL_VERIFY = False
-
 import requests
 
+# 共享工具
+from utils import get_env_var
+
+try:
+    import certifi
+except ImportError:
+    certifi = None
+
 # 配置
-WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY", "xhs_94c57efb6ea323e2496487fc2a5bcd8a")
-DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
+WECHAT_API_KEY = get_env_var("WECHAT_API_KEY", required=False)
+DOUBAO_API_KEY = get_env_var("DOUBAO_API_KEY", required=False)
 # 从环境变量读取 AppID，默认使用三更AI
-APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")  # 三更AI
+APPID = get_env_var("WECHAT_APP_ID", default="wx5c5f1c55d02d1354", required=False)  # 三更AI
+
+
+def parse_bool_env(value: str, default: bool = True) -> bool:
+    """解析布尔环境变量。"""
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def resolve_ssl_verify():
+    """解析微信发布接口的 TLS 校验配置。"""
+    verify_enabled = parse_bool_env(get_env_var("WECHAT_SSL_VERIFY", required=False), default=True)
+    if not verify_enabled:
+        return False
+
+    ca_bundle = get_env_var("WECHAT_CA_BUNDLE", required=False)
+    if ca_bundle:
+        return ca_bundle
+
+    if certifi:
+        return certifi.where()
+    return True
+
+
+SSL_VERIFY = resolve_ssl_verify()
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -82,8 +117,11 @@ def check_environment(verbose: bool = True) -> bool:
     if not DOUBAO_API_KEY:
         errors.append("未设置 DOUBAO_API_KEY 环境变量")
 
-    if not os.environ.get("WECHAT_APP_ID"):
+    if not get_env_var("WECHAT_APP_ID", required=False):
         warnings.append(f"未设置 WECHAT_APP_ID，将使用默认公众号 (AppID: {APPID})")
+
+    if SSL_VERIFY is False:
+        warnings.append("WECHAT_SSL_VERIFY=false，微信公众号发布将跳过 TLS 校验")
 
     # 检查脚本文件
     required_scripts = [
@@ -113,8 +151,9 @@ def check_environment(verbose: bool = True) -> bool:
 
         print("\n📋 环境变量:")
         print(f"  {'✅' if WECHAT_API_KEY else '❌'} WECHAT_API_KEY")
-        print(f"  {'✅' if os.environ.get('WECHAT_APP_ID') else '⚠️'} WECHAT_APP_ID")
+        print(f"  {'✅' if get_env_var('WECHAT_APP_ID', required=False) else '⚠️'} WECHAT_APP_ID")
         print(f"  {'✅' if DOUBAO_API_KEY else '❌'} DOUBAO_API_KEY")
+        print(f"  {'⚠️' if SSL_VERIFY is False else '✅'} WECHAT_SSL_VERIFY")
 
         print("\n📁 脚本文件:")
         for script in required_scripts:

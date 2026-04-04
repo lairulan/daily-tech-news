@@ -11,17 +11,11 @@ import argparse
 import subprocess
 import time
 
+from utils import get_env_var
 
 # API 配置
 DOUBAO_IMAGE_API_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
 DOUBAO_IMAGE_MODEL = "doubao-seedream-4-5-251128"
-
-def get_env_var(name, default=None, required=True):
-    """获取环境变量"""
-    value = os.environ.get(name, default)
-    if required and not value:
-        return None
-    return value
 
 def log_stderr(message):
     """输出日志到 stderr"""

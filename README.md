@@ -2,15 +2,15 @@
 
 ## 概述
 
-基于 RSS 订阅的每日科技新闻自动收集和发布系统。从权威媒体 RSS 源获取真实新闻，使用 AI 格式化后发布到微信公众号。
+基于 RSS 订阅的每日科技新闻自动收集和发布系统。从权威媒体 RSS 源获取真实新闻，必要时可用第三方 API 补充财经候选新闻，再使用 AI 格式化后发布到微信公众号。
 
 ## 工作原理
 
 ```
-RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 → HTML 日报 → 公众号发布
+RSS Feed (XML) → Python 解析 → 规则去重/过滤 →（可选）第三方 API 财经补源 → AI/规则分类 → HTML 日报 → 公众号发布
 ```
 
-## RSS 源配置（2026-03-07 扩展，48个源）
+## RSS 源配置（当前代码为 46 个源）
 
 ### AI 专项源 (13个源)
 
@@ -23,33 +23,26 @@ RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 
 | AI News | https://www.artificialintelligence-news.com/feed/ | 8条 | ✅ |
 | Google DeepMind | https://deepmind.google/blog/rss.xml | 8条 | ✅ |
 | Google Research | https://research.google/blog/rss | 8条 | ✅ |
-| Microsoft Research | https://www.microsoft.com/en-us/research/blog/feed/ | 8条 | ✅ |
+| AWS ML Blog | https://aws.amazon.com/blogs/machine-learning/feed/ | 8条 | ✅ |
 | NVIDIA Blog | https://blogs.nvidia.com/feed/ | 8条 | ✅ |
-| VentureBeat AI | https://venturebeat.com/category/ai/feed/ | 8条 | ✅ |
+| ZDNet AI | https://www.zdnet.com/topic/artificial-intelligence/rss.xml | 10条 | ✅ |
 | MIT News AI | https://news.mit.edu/rss/topic/artificial-intelligence2 | 8条 | ✅ |
 | KDnuggets | https://www.kdnuggets.com/feed | 8条 | ✅ |
-| Analytics Vidhya | https://www.analyticsvidhya.com/feed/ | 8条 | ✅ |
+| IEEE Spectrum AI | https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss | 8条 | ✅ |
 
-### 国内科技源 (11个源)
+### 科技动态源 (21个源)
 
 | 媒体 | RSS 地址 | 每日获取 | 状态 |
 |------|----------|----------|------|
-| 36氪 | https://36kr.com/feed | 12条 | ✅ |
-| 虎嗅 | https://www.huxiu.com/rss/0.xml | 10条 | ✅ |
+| 36氪 | https://rsshub.rssforever.com/36kr/news/latest | 12条 | ✅ |
 | 钛媒体 | https://www.tmtpost.com/rss | 10条 | ✅ |
 | 爱范儿 | https://www.ifanr.com/feed | 8条 | ✅ |
 | 少数派 | https://sspai.com/feed | 8条 | ✅ |
 | InfoQ | https://www.infoq.cn/feed | 8条 | ✅ |
 | IT之家 | https://www.ithome.com/rss/ | 10条 | ✅ |
 | 雷峰网 | https://www.leiphone.com/feed | 8条 | ✅ |
-| 动点科技 | https://cn.technode.com/feed/ | 8条 | ✅ |
 | OSCHINA | https://www.oschina.net/news/rss | 8条 | ✅ |
 | cnBeta | https://www.cnbeta.com.tw/backend.php | 10条 | ✅ |
-
-### 国际科技源 (12个源)
-
-| 媒体 | RSS 地址 | 每日获取 | 状态 |
-|------|----------|----------|------|
 | TechCrunch | https://techcrunch.com/feed/ | 10条 | ✅ |
 | TechCrunch AI | https://techcrunch.com/category/artificial-intelligence/feed/ | 10条 | ✅ |
 | The Verge | https://www.theverge.com/rss/index.xml | 8条 | ✅ |
@@ -67,20 +60,20 @@ RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 
 
 | 媒体 | RSS 地址 | 每日获取 | 状态 |
 |------|----------|----------|------|
+| 财联社快讯 | https://rsshub.rssforever.com/cls/telegraph | 15条 | ✅ |
+| 财新网 | https://rsshub.pseudoyu.com/caixin/latest | 15条 | ✅ |
+| 金十数据 | https://rsshub.rssforever.com/jin10/flash | 10条 | ✅ |
 | 华尔街见闻 | https://dedicated.wallstreetcn.com/rss.xml | 12条 | ✅ |
 | Bloomberg Markets | https://feeds.bloomberg.com/markets/news.rss | 10条 | ✅ |
 | CNBC | https://www.cnbc.com/id/100003114/device/rss/rss.html | 8条 | ✅ |
 | MarketWatch | https://feeds.marketwatch.com/marketwatch/topstories/ | 8条 | ✅ |
 | Yahoo Finance | https://finance.yahoo.com/news/rssindex | 8条 | ✅ |
-| Financial Times | https://www.ft.com/rss/home | 8条 | ✅ |
-| FT Markets | https://www.ft.com/markets?format=rss | 8条 | ✅ |
 | Seeking Alpha | https://seekingalpha.com/feed.xml | 8条 | ✅ |
-| The Economist | https://www.economist.com/finance-and-economics/rss.xml | 8条 | ✅ |
 | Forbes Business | https://www.forbes.com/business/feed2 | 8条 | ✅ |
 | Business Insider | https://feeds.businessinsider.com/custom/all | 8条 | ✅ |
 | CoinDesk | https://www.coindesk.com/arc/outboundfeeds/rss/ | 8条 | ✅ |
 
-> **已废弃**：极客公园（404）、VentureBeat AI（404）、品玩（解析问题）、Google AI Blog（SSL超时）、DeepLearning.AI（404）、财新（403）、第一财经（403）、新浪财经（无效XML）、Reuters（404）
+> **已废弃 / 已移除**：极客公园（404）、VentureBeat AI（404）、品玩（解析问题）、DeepLearning.AI（404）、Reuters（404）、Financial Times / FT Markets / The Economist（当前版本未启用）、虎嗅 / 动点科技 / Microsoft Research / Analytics Vidhya（当前版本未启用）
 
 ## 文件结构
 
@@ -101,15 +94,35 @@ RSS Feed (XML) → Python 解析 → 真实新闻数据 → 豆包 AI 格式化 
 
 ## 定时任务
 
-- **运行时间**: 每天 8:00
-- **任务名称**: com.dailytechnews.scheduler
-- **执行脚本**: `rss_news_collector.py`
+- **线上运行时间**: 每天 08:30（北京时间）
+- **触发方式**: Cloudflare Worker `repository_dispatch`
+- **GitHub Workflow**: `.github/workflows/daily-news.yml`
+- **本地手动调试**: 直接运行 `scripts/rss_news_collector.py` 或 `scripts/auto_daily_news.py`
 
 ## 常用命令
 
 ### 手动运行
 ```bash
 python3 ~/.claude/skills/daily-tech-news/scripts/rss_news_collector.py
+```
+
+### 本地私有配置
+```bash
+cp ~/.claude/skills/daily-tech-news/.env.example ~/.claude/skills/daily-tech-news/.env.local
+```
+
+- 优先读取 shell 环境变量
+- 若未设置，则自动读取项目根目录下的 `.env.local`
+- `.env.local` 已加入 `.gitignore`，适合保存本机私有 key
+- 微信发布默认开启 TLS 校验；如本机网络环境特殊，可在 `.env.local` 中显式设置 `WECHAT_SSL_VERIFY=false`
+
+### 运行测试
+```bash
+python3 -m unittest \
+  ~/.claude/skills/daily-tech-news/scripts/test_rss_datetime_parsing.py \
+  ~/.claude/skills/daily-tech-news/scripts/test_rule_based_classification.py \
+  ~/.claude/skills/daily-tech-news/scripts/test_local_env_loading.py \
+  ~/.claude/skills/daily-tech-news/scripts/test_ssl_config.py
 ```
 
 ### 查看日志
@@ -172,15 +185,27 @@ RSS_SOURCES = {
 
 ### 新闻数量少
 - 检查日志: `tail -50 logs/rss-news.log`
-- 某些 RSS 可能暂时不可用
+- 某些 RSS 可能暂时无更新，或 Atom 时间格式未被正确识别
+- 查看 `raw_news_*.json` 中的 `rss_source_health` 和 `external_source_health`
 
 ### 格式化失败
 - 检查豆包 API key: `echo $DOUBAO_API_KEY`
+- 若本地未导出环境变量，确认 `.env.local` 已填写
 - 查看 API 调用日志
+
+### AI 分类失败
+- 当前已内置规则分类兜底，豆包限流时不会整期清空
+- 若需补强财经覆盖，可配置 `MARKETAUX_API_TOKEN`
+
+### 第三方 API 补源
+- 当前支持可选的 `Marketaux` 财经补源
+- 仅当财经 RSS 近 24 小时供给不足时触发
+- GitHub Actions 如需启用，请配置仓库 Secret: `MARKETAUX_API_TOKEN`
 
 ### 发布失败
 - 检查公众号授权状态
 - 确认微信 API key 有效
+- 若遇到本机证书链问题，可临时在 `.env.local` 中设置 `WECHAT_SSL_VERIFY=false` 或提供 `WECHAT_CA_BUNDLE`
 
 ## 卸载
 

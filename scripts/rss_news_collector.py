@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 基于 RSS 订阅的新闻收集脚本 V4.3.1
-纯 RSS 模式，48 个源，24h 时间窗口，100% 真实新闻
+纯 RSS 模式，46 个源，24h 时间窗口，100% 真实新闻
 
 特性：
-- 48 个 RSS 源（AI 13 + 国内科技 11 + 国际科技 12 + 财经 12）
+- 46 个 RSS 源（AI 13 + 科技动态 21 + 财经 12）
 - RSSHub 多实例 fallback 机制（财经源高可用）
 - 并发 RSS 采集（10线程），采集时间从 7min 压缩到 ~30s
 - 分类补救机制（不足 3 条时自动补充）
@@ -17,6 +17,8 @@
 - 入选新闻原文上下文补充：补抓页面标题/导语，减少主体缺失
 - 使用 certifi 正确验证 SSL 证书
 - 纯 RSS 模式，不使用 AI 补充新闻
+- AI 不可用时自动切换规则分类兜底
+- 财经源不足时可选接入第三方 API 补源
 """
 
 import os
@@ -45,7 +47,7 @@ except ImportError:
 
 # 导入共享工具函数
 try:
-    from utils import get_traditional_lunar_date, get_weekday_name
+    from utils import get_env_var, get_traditional_lunar_date, get_weekday_name
 except ImportError:
     # 如果导入失败，使用本地定义
     from zhdate import ZhDate
@@ -75,6 +77,12 @@ except ImportError:
         weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
         return weekday_names[dt.weekday()]
 
+    def get_env_var(name: str, default: str = None, required: bool = True):
+        value = os.environ.get(name, default)
+        if required and not value:
+            return None
+        return value
+
 # 速率限制配置
 REQUEST_DELAY = 0.5  # 请求间隔（秒）
 HTTP_HEADERS = {
@@ -82,6 +90,7 @@ HTTP_HEADERS = {
 }
 ARTICLE_CONTEXT_CACHE: Dict[str, Dict[str, str]] = {}
 LAST_RSS_HEALTH: List[Dict[str, str]] = []
+LAST_EXTERNAL_HEALTH: List[Dict[str, str]] = []
 
 GENERIC_SUBJECT_WORDS = {
     "项目", "模型", "平台", "系统", "产品", "事项", "计划", "团队", "机构", "公司",
@@ -370,7 +379,7 @@ def is_valid_news_title(title: str) -> bool:
     return True
 
 # 配置
-DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
+DOUBAO_API_KEY = get_env_var("DOUBAO_API_KEY", required=False)
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
@@ -378,7 +387,7 @@ LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
 # 检查 API Key
 if not DOUBAO_API_KEY:
-    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
+    print("错误: 未设置 DOUBAO_API_KEY（环境变量或 .env.local）")
     sys.exit(1)
 
 # RSSHub 镜像实例列表（用于 fallback）
@@ -452,6 +461,36 @@ ALL_RSS_SOURCES = [
 # 目标分类
 CATEGORIES = ["AI 领域", "科技动态", "财经要闻"]
 
+AI_SOURCE_NAMES = {
+    "量子位", "机器之心", "OpenAI Blog", "Hugging Face Blog", "AI News",
+    "Google DeepMind", "Google Research", "AWS ML Blog", "NVIDIA Blog",
+    "ZDNet AI", "MIT News AI", "KDnuggets", "IEEE Spectrum AI",
+}
+
+FINANCE_SOURCE_NAMES = {
+    "财联社快讯", "财新网", "金十数据", "华尔街见闻", "Bloomberg Markets",
+    "CNBC", "MarketWatch", "Yahoo Finance", "Seeking Alpha",
+    "Forbes Business", "Business Insider", "CoinDesk", "Marketaux",
+}
+
+AI_KEYWORDS = [
+    "AI", "人工智能", "大模型", "模型", "LLM", "OpenAI", "Anthropic", "Gemini",
+    "Claude", "推理", "训练", "多模态", "智能体", "Agent", "生成式", "机器学习",
+    "深度学习", "芯片", "GPU",
+]
+
+FINANCE_KEYWORDS = [
+    "融资", "IPO", "上市", "并购", "收购", "财报", "营收", "净利润", "亏损", "估值",
+    "市值", "股价", "美股", "港股", "A股", "债券", "基金", "汇率", "美联储",
+    "央行", "油价", "黄金", "比特币", "加密", "市场", "经济", "关税",
+]
+
+HIGH_SIGNAL_KEYWORDS = {
+    "AI 领域": ["发布", "推出", "开源", "升级", "融资", "收购", "登顶", "突破"],
+    "科技动态": ["发布", "推出", "上线", "更新", "升级", "开售", "发布会"],
+    "财经要闻": ["融资", "上市", "IPO", "收购", "并购", "财报", "营收", "估值", "加息", "降息"],
+}
+
 def log(message):
     """记录日志"""
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -471,10 +510,160 @@ def clean_html_content(raw_text):
     return text
 
 
+def parse_feed_datetime(date_text: str) -> datetime:
+    """解析 RSS/Atom 中常见的发布时间格式。"""
+    if not date_text:
+        raise ValueError("empty date")
+
+    normalized = date_text.strip()
+
+    # 优先兼容 RFC 2822 / RFC 822 风格时间。
+    try:
+        return parsedate_to_datetime(normalized)
+    except (TypeError, ValueError, IndexError):
+        pass
+
+    # 再兼容 ISO 8601，例如 2026-04-04T15:12:06Z。
+    iso_candidate = normalized.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(iso_candidate)
+    except ValueError:
+        pass
+
+    # 补充少数 feed 使用的 UTC 文本后缀。
+    if normalized.endswith(" UTC"):
+        try:
+            return datetime.fromisoformat(normalized[:-4] + "+00:00")
+        except ValueError:
+            pass
+
+    raise ValueError(f"unsupported date format: {date_text}")
+
+
 def is_similar_title(t1, t2, threshold=0.6):
     """字符级 Jaccard 相似度检查"""
     s1, s2 = set(t1), set(t2)
     return len(s1 & s2) / len(s1 | s2) > threshold if s1 | s2 else False
+
+
+def get_source_category(source_name: str) -> str:
+    """根据来源名推断默认分类。"""
+    if source_name in AI_SOURCE_NAMES:
+        return "AI 领域"
+    if source_name in FINANCE_SOURCE_NAMES:
+        return "财经要闻"
+    return "科技动态"
+
+
+def contains_topic_keyword(text: str, keyword: str) -> bool:
+    """英文关键词按词边界匹配，中文关键词按包含匹配。"""
+    if not text or not keyword:
+        return False
+
+    lowered = text.lower()
+    normalized_keyword = keyword.lower()
+    if re.fullmatch(r"[a-z0-9.+\- ]+", normalized_keyword):
+        return re.search(rf"\b{re.escape(normalized_keyword)}\b", lowered) is not None
+    return normalized_keyword in lowered
+
+
+def infer_item_category(item: Dict) -> str:
+    """结合来源和标题关键词推断新闻分类。"""
+    source_hint = item.get("source_category", "")
+    if source_hint in CATEGORIES:
+        return source_hint
+
+    source_name = item.get("rss_source", "")
+    title = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+
+    finance_score = 0
+    ai_score = 0
+
+    category_by_source = ""
+    if source_name:
+        category_by_source = get_source_category(source_name)
+        if category_by_source == "AI 领域":
+            ai_score += 4
+        elif category_by_source == "财经要闻":
+            finance_score += 4
+
+    for keyword in AI_KEYWORDS:
+        if contains_topic_keyword(title, keyword):
+            ai_score += 2
+
+    for keyword in FINANCE_KEYWORDS:
+        if contains_topic_keyword(title, keyword):
+            finance_score += 2
+
+    if category_by_source == "科技动态" and ai_score < 4 and finance_score < 4:
+        return "科技动态"
+    if finance_score > ai_score and finance_score >= 2:
+        return "财经要闻"
+    if ai_score >= 2:
+        return "AI 领域"
+    return "科技动态"
+
+
+def score_item_for_category(item: Dict, category: str) -> tuple:
+    """为规则分类场景下的新闻排序。"""
+    text = f"{item.get('title', '')} {item.get('summary', '')}"
+    keyword_hits = sum(1 for keyword in HIGH_SIGNAL_KEYWORDS.get(category, []) if keyword in text)
+    has_digits = 1 if re.search(r"\d", text) else 0
+    parsed_time = item.get("parsed_time", "")
+    try:
+        dt = datetime.strptime(parsed_time, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        dt = datetime.min
+    return (keyword_hits, has_digits, dt)
+
+
+def select_diverse_items(items: List[Dict], limit: int = 5) -> List[Dict]:
+    """优先保证来源多样性，再补齐数量。"""
+    selected = []
+    source_counts: Dict[str, int] = {}
+
+    for item in items:
+        source = item.get("rss_source", "未知来源")
+        if source_counts.get(source, 0) >= 2:
+            continue
+        selected.append(item)
+        source_counts[source] = source_counts.get(source, 0) + 1
+        if len(selected) >= limit:
+            return selected
+
+    for item in items:
+        if item in selected:
+            continue
+        selected.append(item)
+        if len(selected) >= limit:
+            break
+
+    return selected
+
+
+def classify_news_with_rules(news_items: List[Dict]) -> Dict[str, List[Dict]]:
+    """在 LLM 不可用时基于来源和关键词进行规则分类。"""
+    log("AI 分类不可用，切换到规则分类兜底...")
+
+    buckets = {category: [] for category in CATEGORIES}
+    for item in news_items:
+        category = infer_item_category(item)
+        buckets[category].append(item)
+
+    categorized = {}
+    for category in CATEGORIES:
+        ranked = sorted(
+            buckets[category],
+            key=lambda item: score_item_for_category(item, category),
+            reverse=True,
+        )
+        categorized[category] = select_diverse_items(ranked, limit=5)
+
+    log(
+        f"规则分类完成: AI领域{len(categorized['AI 领域'])}条, "
+        f"科技动态{len(categorized['科技动态'])}条, 财经要闻{len(categorized['财经要闻'])}条"
+    )
+    return categorized
 
 
 def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict]:
@@ -551,7 +740,12 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
 
             # 发布时间
             pub_text = ''
-            for date_path in ['pubDate', '{http://www.w3.org/2005/Atom}published', 'date']:
+            for date_path in [
+                'pubDate',
+                '{http://www.w3.org/2005/Atom}published',
+                '{http://www.w3.org/2005/Atom}updated',
+                'date'
+            ]:
                 date_elem = elem.find(date_path)
                 if date_elem is not None and date_elem.text:
                     pub_text = date_elem.text
@@ -573,7 +767,7 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
                 continue
 
             try:
-                pub_time = parsedate_to_datetime(item['published'])
+                pub_time = parse_feed_datetime(item['published'])
                 # 转换为本地时区（北京时间）进行比较
                 pub_time_local = pub_time.astimezone()
 
@@ -595,6 +789,105 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
     except Exception as e:
         log(f"获取 RSS 失败 [{url}]: {e}")
         return []
+
+
+def fetch_marketaux_news(limit: int = 8, hours_ago: int = 24) -> List[Dict]:
+    """从 Marketaux 获取补充财经新闻。"""
+    api_token = os.environ.get("MARKETAUX_API_TOKEN")
+    if not api_token:
+        return []
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours_ago)
+    params = {
+        "api_token": api_token,
+        "language": "en,zh",
+        "published_after": cutoff.strftime("%Y-%m-%dT%H:%M"),
+        "limit": limit,
+        "sort": "published_at",
+        "group_similar": "true",
+        "industries": "Technology,Financial Services,Communication Services",
+    }
+
+    try:
+        response = requests.get(
+            "https://api.marketaux.com/v1/news/all",
+            params=params,
+            headers=HTTP_HEADERS,
+            timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        articles = payload.get("data", [])
+    except Exception as e:
+        log(f"Marketaux 获取失败: {e}")
+        return []
+
+    items = []
+    for article in articles:
+        title = clean_html_content(article.get("title", ""))
+        summary = clean_html_content(article.get("description") or article.get("snippet") or "")
+        published = article.get("published_at", "")
+        link = article.get("url", "")
+        if not title or not published or not link:
+            continue
+
+        try:
+            pub_time_local = parse_feed_datetime(published).astimezone()
+        except ValueError:
+            continue
+
+        items.append({
+            "title": title,
+            "original_title": title,
+            "summary": summary[:500],
+            "original_summary": summary[:500],
+            "link": link,
+            "published": published,
+            "parsed_time": pub_time_local.strftime("%Y-%m-%d %H:%M:%S"),
+            "source": article.get("source", "Marketaux"),
+            "rss_source": "Marketaux",
+            "source_category": "财经要闻",
+        })
+
+    return items
+
+
+def maybe_collect_external_news(source_health: List[Dict[str, str]]) -> List[Dict]:
+    """在财经 RSS 供给不足时，用第三方 API 补齐候选新闻。"""
+    global LAST_EXTERNAL_HEALTH
+    LAST_EXTERNAL_HEALTH = []
+
+    api_token = os.environ.get("MARKETAUX_API_TOKEN")
+    if not api_token:
+        LAST_EXTERNAL_HEALTH.append({
+            "provider": "Marketaux",
+            "status": "disabled",
+            "reason": "MARKETAUX_API_TOKEN not set",
+            "item_count": 0,
+        })
+        return []
+
+    finance_health = [item for item in source_health if get_source_category(item["source"]) == "财经要闻"]
+    finance_item_count = sum(item["item_count"] for item in finance_health)
+    finance_healthy_sources = sum(1 for item in finance_health if item["item_count"] > 0)
+
+    if finance_item_count >= 24 and finance_healthy_sources >= 4:
+        LAST_EXTERNAL_HEALTH.append({
+            "provider": "Marketaux",
+            "status": "skipped",
+            "reason": f"finance RSS healthy ({finance_item_count} items / {finance_healthy_sources} sources)",
+            "item_count": 0,
+        })
+        return []
+
+    items = fetch_marketaux_news(limit=8)
+    LAST_EXTERNAL_HEALTH.append({
+        "provider": "Marketaux",
+        "status": "ok" if items else "empty",
+        "reason": f"finance RSS weak ({finance_item_count} items / {finance_healthy_sources} sources)",
+        "item_count": len(items),
+    })
+    return items
 
 def fetch_source_with_fallback(source: Dict) -> tuple:
     """并发辅助函数：获取单个 RSS 源（含 fallback），返回抓取结果与健康信息。"""
@@ -666,6 +959,11 @@ def collect_all_news() -> List[Dict]:
         log(f"  空返回源: {', '.join(item['source'] for item in empty_sources[:12])}")
     if fallback_sources:
         log(f"  fallback源: {', '.join(item['source'] for item in fallback_sources[:8])}")
+
+    external_items = maybe_collect_external_news(LAST_RSS_HEALTH)
+    if external_items:
+        all_items.extend(external_items)
+        log(f"第三方 API 补充: 获取 {len(external_items)} 条候选新闻")
 
     # 去重（基于标题）
     seen_titles = set()
@@ -757,7 +1055,7 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
     result = call_llm_api(prompt, max_tokens=2000)
     if not result:
         log("AI 分类失败")
-        return {"AI 领域": [], "科技动态": [], "财经要闻": []}
+        return classify_news_with_rules(news_items)
 
     # 解析 AI 返回的 JSON
     try:
@@ -801,7 +1099,7 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
             except Exception:
                 pass
         log(f"原始结果: {result[:500]}")
-        return {"AI 领域": [], "科技动态": [], "财经要闻": []}
+        return classify_news_with_rules(news_items)
 
 def fetch_article_context(url: str) -> Dict[str, str]:
     """抓取原文页面上下文，用于补全主体名和关键信息。"""
@@ -1769,6 +2067,7 @@ def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], da
         "categorized_count": {cat: len(items) for cat, items in categorized.items()},
         "summary": summary,  # 添加智能摘要
         "rss_source_health": LAST_RSS_HEALTH,
+        "external_source_health": LAST_EXTERNAL_HEALTH,
         "all_news": news_items,
         "categorized_news": categorized
     }
@@ -1847,7 +2146,7 @@ def main():
         unused_news = [n for n in all_news if n.get('title', '').lower() not in used_titles]
         if unused_news:
             log(f"  找到 {len(unused_news)} 条未使用新闻，重新分类补充...")
-            supplement = classify_news_with_ai(unused_news)
+            supplement = classify_news_with_rules(unused_news)
             # 规范化补充分类的键名
             for old_key, news_list in supplement.items():
                 new_key = category_mapping.get(old_key, old_key)

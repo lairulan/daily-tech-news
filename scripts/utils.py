@@ -10,6 +10,14 @@ import time
 from datetime import datetime
 from typing import Optional, Callable, Any
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+WORK_DIR = os.path.dirname(SCRIPT_DIR)
+LOCAL_ENV_PATHS = [
+    os.path.join(WORK_DIR, ".env.local"),
+    os.path.join(WORK_DIR, ".env"),
+]
+_LOCAL_ENV_LOADED = False
+
 # 尝试导入 certifi，如果不可用则使用系统证书
 try:
     import certifi
@@ -20,6 +28,45 @@ except ImportError:
 
 # 备用：不验证证书的上下文（仅在必要时使用）
 SSL_CONTEXT_UNVERIFIED = ssl._create_unverified_context()
+
+
+def load_local_env(force: bool = False) -> None:
+    """从项目根目录加载本地私有配置文件。
+
+    只在环境变量尚未存在时注入，避免覆盖 CI 或 shell 中显式设置的值。
+    """
+    global _LOCAL_ENV_LOADED
+    if _LOCAL_ENV_LOADED and not force:
+        return
+
+    for env_path in LOCAL_ENV_PATHS:
+        if not os.path.exists(env_path):
+            continue
+
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip().strip("'").strip('"')
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except OSError:
+            continue
+
+    _LOCAL_ENV_LOADED = True
+
+
+def get_env_var(name: str, default: Optional[str] = None, required: bool = True) -> Optional[str]:
+    """优先从环境变量读取，否则回退到本地私有配置文件。"""
+    load_local_env()
+    value = os.environ.get(name, default)
+    if required and not value:
+        return None
+    return value
 
 def get_traditional_lunar_date(dt: datetime) -> str:
     """获取传统农历日期格式：乙巳年冬月廿七
@@ -111,9 +158,9 @@ def check_environment() -> dict:
     details = {}
 
     # 检查环境变量
-    wechat_api_key = os.environ.get("WECHAT_API_KEY")
-    wechat_app_id = os.environ.get("WECHAT_APP_ID")
-    doubao_api_key = os.environ.get("DOUBAO_API_KEY")
+    wechat_api_key = get_env_var("WECHAT_API_KEY", required=False)
+    wechat_app_id = get_env_var("WECHAT_APP_ID", required=False)
+    doubao_api_key = get_env_var("DOUBAO_API_KEY", required=False)
 
     details["env_vars"] = {
         "WECHAT_API_KEY": bool(wechat_api_key),
