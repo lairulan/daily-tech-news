@@ -1,33 +1,34 @@
-# daily-tech-news STATUS v4.3.1 — 2026-03-31
+# daily-tech-news STATUS v4.4.0 — 2026-04-05
 
 ## 断点
-- **本次完成**：新闻内容质量专项修复
-  - `rss_news_collector.py`：入选新闻补抓原文上下文（页面标题 / 导语 / 摘要）
-  - `rss_news_collector.py`：标题改写从“长度规范化”升级为“单行新闻简讯”，要求主体明确、事实可追溯
-  - `rss_news_collector.py`：新增主体泛化校验、时间表达校验，拦截“项目/模型/计划/事项”等空泛主语
-  - `rss_news_collector.py`：加入站点导航噪音清洗、主体候选打分、精确实体回填，减少把站点词当主体
-  - `rss_news_collector.py`：加入强过滤关键词，剔除“派早报 / 观察 / 背后 / 盘点”等非简讯素材
-  - `rss_news_collector.py`：取消每条新闻下方的补充长文渲染，只保留单行简讯
-  - `rss_news_collector.py`：每次运行将 RSS 源健康摘要写入 `raw_news_*.json`
-  - `auto_daily_news.py` / `rss_news_collector.py`：Gemini 首次失败后本轮停用，避免重复 400
-  - `SKILL.md`：更新为 RSS-only、云端单触发、单行简讯的当前真实流程
-- **下一步**：观察 2026-04-01 北京时间 08:30 云端定时发布的标题质量，重点看具体项目名、时间表达和 RSS 空返回源是否稳定
+- **本次完成**：pipeline 健壮性全面升级（codex + 人工）
+  - `rss_news_collector.py`：新增 `classify_news_with_rules` 规则分类兜底，AI 429/失败时不再卡死
+  - `rss_news_collector.py`：新增 `fetch_marketaux_news` + `maybe_collect_external_news`，财经 RSS 不足时可选接入 Marketaux（英文财经兜底，需配 token）
+  - `rss_news_collector.py`：新增 `parse_feed_datetime`，独立健壮日期解析（RFC 2822 / ISO 8601 / UTC后缀）
+  - `utils.py`：统一 `get_env_var`，自动加载 `.env.local` / `.env`，本地测试不再需要 export
+  - `.env.example`：新增本地配置模板
+  - `daily-news.yml`：移除无用的 `AI_GATEWAY_API_KEY`，简化入口校验逻辑
+  - 新增4个单元测试：日期解析、规则分类、SSL配置、环境变量加载
+  - 源数量调整：48 → 46（去掉2个长期失效源）
+- **下一步**：
+  - 观察 2026-04-05 北京时间 08:30 运行质量，重点看规则分类兜底效果
+  - 可选：Marketaux 免费 token 申请（marketaux.com，100次/天，用于财经补源）
+  - 可选：财联社 CLS_TOKEN 获取（抓包财联社 APP 登录，彻底解决 403）
 
 ## 环境
 - 脚本路径：`~/.claude/skills/daily-tech-news/scripts/`
 - 核心文件：`rss_news_collector.py`（主逻辑）、`auto_daily_news.py`（入口）、`generate_image.py`（封面图）
-- API 配置（已硬编码默认值）：
-  - `WECHAT_API_KEY`：xhs_94c57efb...（微绿流量宝）
-  - `WECHAT_APP_ID`：wx5c5f1c55d02d1354（三更AI）
-  - `DOUBAO_API_KEY`：bb95205d...（豆包 ARK 封面图）
-  - `GOOGLE_API_KEY`：Gemini 可用时参与生成，失败后自动停用
-  - `IMGBB_API_KEY`：封面图永久链接托管（需环境变量，无则用临时 URL）
-- 定时任务：GitHub Actions UTC 00:30 = 北京时间 08:30
+- API 配置（支持 `.env.local` 本地文件）：
+  - `DOUBAO_API_KEY`：豆包 ARK（AI分类 + 封面图），必填
+  - `WECHAT_API_KEY` / `WECHAT_APP_ID`：三更AI 公众号发布
+  - `MARKETAUX_API_TOKEN`：可选，英文财经补源
+  - `IMGBB_API_KEY`：可选，封面图永久链接
+- 定时任务：CF Worker 触发 GitHub Actions，北京时间 08:30
 
 ## 已知问题
-- wx.limyai.com SSL 证书已过期，SSL_VERIFY = False 临时跳过（TODO：证书续期后恢复）
-- IMGBB_API_KEY 未硬编码，本地需设置环境变量，否则封面图用豆包临时 URL
-- 部分 RSS 源稳定性一般（如 XML 异常、403、超时），需要继续做源健康治理
+- wx.limyai.com SSL 证书过期，`SSL_VERIFY=False` 临时跳过（TODO：证书续期后恢复）
+- Marketaux 主要是英文财经，对中文财经场景补充有限，建议不配置（静默跳过）
+- 财联社 / 财新 RSSHub 路由依赖公共实例，不稳定；根治方案是自建 RSSHub + CLS_TOKEN
 
 ## 勿碰
 - `logs/` 目录（运营记录，不清理）
