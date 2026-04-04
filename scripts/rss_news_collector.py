@@ -393,28 +393,27 @@ RSSHUB_INSTANCES = [
 ALL_RSS_SOURCES = [
     # === AI 专项源（13个） ===
     {"name": "量子位", "url": "https://www.qbitai.com/feed", "limit": 12},
-    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 12},
+    {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "limit": 12},  # XML容错已处理
     {"name": "OpenAI Blog", "url": "https://openai.com/blog/rss.xml", "limit": 8},
     {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "limit": 8},
     {"name": "AI News", "url": "https://www.artificialintelligence-news.com/feed/", "limit": 8},
     {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "limit": 8},
     {"name": "Google Research", "url": "https://research.google/blog/rss", "limit": 8},
-    {"name": "Microsoft Research", "url": "https://www.microsoft.com/en-us/research/blog/feed/", "limit": 8},
+    {"name": "AWS ML Blog", "url": "https://aws.amazon.com/blogs/machine-learning/feed/", "limit": 8},
     {"name": "NVIDIA Blog", "url": "https://blogs.nvidia.com/feed/", "limit": 8},
-    {"name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/", "limit": 8},
+    {"name": "ZDNet AI", "url": "https://www.zdnet.com/topic/artificial-intelligence/rss.xml", "limit": 10},
     {"name": "MIT News AI", "url": "https://news.mit.edu/rss/topic/artificial-intelligence2", "limit": 8},
     {"name": "KDnuggets", "url": "https://www.kdnuggets.com/feed", "limit": 8},
-    {"name": "Analytics Vidhya", "url": "https://www.analyticsvidhya.com/feed/", "limit": 8},
-    # === 国内科技源（11个） ===
-    {"name": "36氪", "url": "https://36kr.com/feed", "limit": 12},
-    {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "limit": 10},
+    {"name": "IEEE Spectrum AI", "url": "https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss", "limit": 8},
+    # === 国内科技源（9个） ===
+    {"name": "36氪", "url": "https://rsshub.rssforever.com/36kr/news/latest", "limit": 12,
+     "fallback_urls": ["https://36kr.com/feed"]},
     {"name": "钛媒体", "url": "https://www.tmtpost.com/rss", "limit": 10},
     {"name": "爱范儿", "url": "https://www.ifanr.com/feed", "limit": 8},
     {"name": "少数派", "url": "https://sspai.com/feed", "limit": 8},
     {"name": "InfoQ", "url": "https://www.infoq.cn/feed", "limit": 8},
     {"name": "IT之家", "url": "https://www.ithome.com/rss/", "limit": 10},
     {"name": "雷峰网", "url": "https://www.leiphone.com/feed", "limit": 8},
-    {"name": "动点科技", "url": "https://cn.technode.com/feed/", "limit": 8},
     {"name": "OSCHINA", "url": "https://www.oschina.net/news/rss", "limit": 8},
     {"name": "cnBeta", "url": "https://www.cnbeta.com.tw/backend.php", "limit": 10},
     # === 国际科技源（12个） ===
@@ -430,7 +429,7 @@ ALL_RSS_SOURCES = [
     {"name": "9to5Mac", "url": "https://9to5mac.com/feed/", "limit": 8},
     {"name": "Android Authority", "url": "https://www.androidauthority.com/feed/", "limit": 8},
     {"name": "Hacker News Best", "url": "https://hnrss.org/best", "limit": 8},
-    # === 财经源（15个，强化中文财经源 + RSSHub多实例fallback） ===
+    # === 财经源（15个） ===
     # 中文财经源（通过 RSSHub 镜像，带 fallback）
     {"name": "财联社快讯", "url": "https://rsshub.rssforever.com/cls/telegraph", "limit": 15,
      "fallback_urls": ["https://rsshub.pseudoyu.com/cls/telegraph", "https://rsshub.ktachibana.party/cls/telegraph"]},
@@ -485,8 +484,25 @@ def fetch_rss_items(url: str, limit: int = 10, hours_ago: int = 24) -> List[Dict
         with urllib.request.urlopen(req, timeout=30, context=ssl_context) as response:
             content = response.read()
 
-        # 解析 XML
-        root = ET.fromstring(content)
+        # 解析 XML（加容错：先尝试标准解析，失败则清理后重试）
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            # 清理���见的 XML 破坏字符（如机器之心的 mismatched tag）
+            cleaned = content.decode('utf-8', errors='ignore')
+            # 移除非法控制字符
+            cleaned = ''.join(c for c in cleaned if ord(c) >= 32 or c in '\n\r\t')
+            # 截断到最后一个完整的 </item> 或 </entry>
+            for close_tag in ['</item>', '</entry>']:
+                idx = cleaned.rfind(close_tag)
+                if idx > 0:
+                    # 找对应的根关闭标签并截断
+                    cleaned = cleaned[:idx + len(close_tag)] + '</channel></rss>' if close_tag == '</item>' else cleaned[:idx + len(close_tag)] + '</feed>'
+                    break
+            try:
+                root = ET.fromstring(cleaned.encode('utf-8'))
+            except ET.ParseError:
+                return []
 
         # RSS 格式：//rss/channel/item 或 //feed/entry
         items = []
