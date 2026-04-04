@@ -81,7 +81,6 @@ HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 }
 ARTICLE_CONTEXT_CACHE: Dict[str, Dict[str, str]] = {}
-GEMINI_AVAILABLE = True
 LAST_RSS_HEALTH: List[Dict[str, str]] = []
 
 GENERIC_SUBJECT_WORDS = {
@@ -372,15 +371,14 @@ def is_valid_news_title(title: str) -> bool:
 
 # 配置
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
-# 检查 API Key（至少有一个即可）
-if not DOUBAO_API_KEY and not GOOGLE_API_KEY:
-    print("错误: 未设置 DOUBAO_API_KEY 或 GOOGLE_API_KEY 环境变量")
+# 检查 API Key
+if not DOUBAO_API_KEY:
+    print("错误: 未设置 DOUBAO_API_KEY 环境变量")
     sys.exit(1)
 
 # RSSHub 镜像实例列表（用于 fallback）
@@ -1577,34 +1575,8 @@ def generate_news_briefs(categorized: Dict[str, List[Dict]]) -> Dict[str, List[D
     log(f"简报生成完成: {idx}/{len(news_items_for_brief)} 条")
     return categorized
 
-def call_gemini_api(prompt, max_tokens=2000):
-    """调用 Google Gemini API（主力）"""
-    global GEMINI_AVAILABLE
-
-    if not GOOGLE_API_KEY or not GEMINI_AVAILABLE:
-        return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "maxOutputTokens": max_tokens,
-            "temperature": 0.3,
-        }
-    }
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        result = response.json()
-        return result["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        GEMINI_AVAILABLE = False
-        log(f"Gemini API 调用失败，本轮停用 Gemini: {e}")
-        return None
-
-
-def call_doubao_api(prompt, max_tokens=2000, retries=1):
-    """调用豆包 API 生成内容（兜底）"""
+def call_doubao_api(prompt, max_tokens=2000, retries=3):
+    """调用豆包 API 生成内容"""
     if not DOUBAO_API_KEY:
         return None
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
@@ -1621,8 +1593,9 @@ def call_doubao_api(prompt, max_tokens=2000, retries=1):
     for attempt in range(retries + 1):
         try:
             if attempt > 0:
-                log(f"豆包 API 重试第 {attempt} 次...")
-                time.sleep(2)
+                wait = min(5 * (2 ** (attempt - 1)), 30)  # 5s, 10s, 20s, 最多30s
+                log(f"豆包 API 重试第 {attempt} 次（等待 {wait}s）...")
+                time.sleep(wait)
             response = requests.post(url, headers=headers, json=payload, timeout=120)
             response.raise_for_status()
             result = response.json()
@@ -1635,12 +1608,7 @@ def call_doubao_api(prompt, max_tokens=2000, retries=1):
 
 
 def call_llm_api(prompt, max_tokens=2000):
-    """调用 LLM API：Gemini 主力，豆包兜底"""
-    result = call_gemini_api(prompt, max_tokens)
-    if result:
-        return result
-    if GOOGLE_API_KEY:
-        log("Gemini 不可用，尝试豆包兜底...")
+    """调用豆包 API"""
     return call_doubao_api(prompt, max_tokens)
 
 def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "") -> str:

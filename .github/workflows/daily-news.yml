@@ -1,9 +1,9 @@
 name: 每日科技新闻
 
 on:
-  # GitHub Actions 自带定时触发（UTC 00:30 = 北京时间 08:30）
-  schedule:
-    - cron: '30 0 * * *'
+  # Cloudflare Worker 定时触发（北京时间 08:30）
+  repository_dispatch:
+    types: [daily-tech-news]
 
   # 支持手动触发
   workflow_dispatch:

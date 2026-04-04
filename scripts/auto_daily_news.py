@@ -30,10 +30,8 @@ import requests
 # 配置
 WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY", "xhs_94c57efb6ea323e2496487fc2a5bcd8a")
 DOUBAO_API_KEY = os.environ.get("DOUBAO_API_KEY")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "AQ.Ab8RN6LKLi1gwnul0aGEdgXzolnfIKYhiovTTsf-yr36z8yDeg")
 # 从环境变量读取 AppID，默认使用三更AI
 APPID = os.environ.get("WECHAT_APP_ID", "wx5c5f1c55d02d1354")  # 三更AI
-GEMINI_AVAILABLE = True
 
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -320,41 +318,8 @@ def extract_text_from_html(html_content):
     text = text.replace('&nbsp;', ' ').replace('&amp;', '&')
     return text
 
-def call_gemini_api(prompt, max_tokens=2000):
-    """调用 Google Gemini API（主力）"""
-    global GEMINI_AVAILABLE
-
-    if not GOOGLE_API_KEY or not GEMINI_AVAILABLE:
-        return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}
-    }
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        result = response.json()
-        return result["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        GEMINI_AVAILABLE = False
-        log(f"Gemini API 调用失败，本轮停用 Gemini: {e}")
-        return None
-
-
-def call_llm_api(prompt, max_tokens=2000):
-    """调用 LLM API：Gemini 主力，豆包兜底"""
-    result = call_gemini_api(prompt, max_tokens)
-    if result:
-        return result
-    if GOOGLE_API_KEY:
-        log("Gemini 不可用，尝试豆包兜底...")
-    return call_doubao_api(prompt, max_tokens)
-
-
 def call_doubao_api(prompt, max_tokens=2000):
-    """调用豆包 API 生成内容（兜底）"""
+    """调用豆包 API 生成内容"""
     if not DOUBAO_API_KEY:
         return None
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
@@ -376,6 +341,11 @@ def call_doubao_api(prompt, max_tokens=2000):
     except Exception as e:
         log(f"豆包 API 调用失败: {e}")
         return None
+
+
+def call_llm_api(prompt, max_tokens=2000):
+    """调用豆包 API"""
+    return call_doubao_api(prompt, max_tokens)
 
 def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date):
     """使用 RSS 收集器生成真实新闻 HTML 内容
