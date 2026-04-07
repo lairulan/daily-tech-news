@@ -380,15 +380,19 @@ def is_valid_news_title(title: str) -> bool:
 
 # 配置
 DOUBAO_API_KEY = get_env_var("DOUBAO_API_KEY", required=False)
+ANTHROPIC_API_KEY = get_env_var("ANTHROPIC_API_KEY", required=False)
+ANTHROPIC_BASE_URL = get_env_var("ANTHROPIC_BASE_URL", required=False) or "https://api.anthropic.com"
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
-# 检查 API Key
-if not DOUBAO_API_KEY:
-    print("错误: 未设置 DOUBAO_API_KEY（环境变量或 .env.local）")
+# 检查 API Key：Claude 用于内容整理，豆包用于封面图
+if not ANTHROPIC_API_KEY:
+    print("错误: 未设置 ANTHROPIC_API_KEY（环境变量或 .env.local）")
     sys.exit(1)
+if not DOUBAO_API_KEY:
+    print("警告: 未设置 DOUBAO_API_KEY，封面图生成将跳过")
 
 # RSSHub 镜像实例列表（用于 fallback）
 RSSHUB_INSTANCES = [
@@ -1890,7 +1894,7 @@ def generate_news_briefs(categorized: Dict[str, List[Dict]]) -> Dict[str, List[D
     return categorized
 
 def call_doubao_api(prompt, max_tokens=2000, retries=3):
-    """调用豆包 API 生成内容"""
+    """调用豆包 API（仅封面图使用，内容整理已迁移到 Claude）"""
     if not DOUBAO_API_KEY:
         return None
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
@@ -1907,7 +1911,7 @@ def call_doubao_api(prompt, max_tokens=2000, retries=3):
     for attempt in range(retries + 1):
         try:
             if attempt > 0:
-                wait = min(5 * (2 ** (attempt - 1)), 30)  # 5s, 10s, 20s, 最多30s
+                wait = min(5 * (2 ** (attempt - 1)), 30)
                 log(f"豆包 API 重试第 {attempt} 次（等待 {wait}s）...")
                 time.sleep(wait)
             response = requests.post(url, headers=headers, json=payload, timeout=120)
@@ -1921,9 +1925,41 @@ def call_doubao_api(prompt, max_tokens=2000, retries=3):
             log(f"豆包 API 调用失败（第 {attempt + 1} 次尝试）: {e}")
 
 
+def call_claude_api(prompt, max_tokens=2000, retries=2):
+    """调用 Claude Sonnet API 进行新闻分类、改写、微语生成"""
+    try:
+        import anthropic
+    except ImportError:
+        log("anthropic 包未安装，回退到豆包 API")
+        return call_doubao_api(prompt, max_tokens)
+
+    client = anthropic.Anthropic(
+        api_key=ANTHROPIC_API_KEY,
+        base_url=ANTHROPIC_BASE_URL,
+    )
+    for attempt in range(retries + 1):
+        try:
+            if attempt > 0:
+                wait = min(5 * (2 ** (attempt - 1)), 30)
+                log(f"Claude API 重试第 {attempt} 次（等待 {wait}s）...")
+                time.sleep(wait)
+            msg = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=max_tokens,
+                temperature=0.3,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return msg.content[0].text
+        except Exception as e:
+            if attempt == retries:
+                log(f"Claude API 调用失败（已重试 {retries} 次）: {e}，回退到豆包")
+                return call_doubao_api(prompt, max_tokens)
+            log(f"Claude API 调用失败（第 {attempt + 1} 次尝试）: {e}")
+
+
 def call_llm_api(prompt, max_tokens=2000):
-    """调用豆包 API"""
-    return call_doubao_api(prompt, max_tokens)
+    """统一 LLM 入口：内容整理用 Claude Sonnet，封面图继续用豆包"""
+    return call_claude_api(prompt, max_tokens)
 
 def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "") -> str:
     """将分类后的新闻格式化为 HTML（使用 inline style，兼容微信公众号）"""
