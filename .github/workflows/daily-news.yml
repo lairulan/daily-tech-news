@@ -37,7 +37,7 @@ jobs:
           MARKETAUX_API_TOKEN: ${{ secrets.MARKETAUX_API_TOKEN }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
         run: |
-          set -x  # 显示执行的命令
+          set -euo pipefail
           cd scripts
 
           if [ -z "$ANTHROPIC_API_KEY" ]; then
