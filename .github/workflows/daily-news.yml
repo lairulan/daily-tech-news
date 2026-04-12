@@ -7,6 +7,15 @@ on:
 
   # 支持手动触发
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '试运行（生成内容但不发布到微信）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   publish:
@@ -46,6 +55,13 @@ jobs:
             exit 1
           fi
 
+          # 设置 dry-run 标志（在循环外，只判断一次）
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+            echo "⚠️ 试运行模式，不发布到微信"
+          fi
+
           # 运行脚本，带重试机制
           MAX_RETRIES=3
           RETRY_COUNT=0
@@ -53,7 +69,7 @@ jobs:
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             echo "尝试 $((RETRY_COUNT + 1))/$MAX_RETRIES..."
 
-            if python3 auto_daily_news.py 2>&1; then
+            if python3 auto_daily_news.py $DRY_RUN_FLAG 2>&1; then
               echo "✅ 新闻发布成功！"
               exit 0
             else
@@ -72,4 +88,27 @@ jobs:
         if: always()
         run: |
           echo "任务执行时间: $(date)"
-          echo "时区: Asia/Shanghai"
+          echo ""
+          echo "=== 生成的新闻标题 ==="
+          if ls raw_news_*.json 1>/dev/null 2>&1; then
+            python3 -c "
+import json, glob
+data = json.load(open(sorted(glob.glob('raw_news_*.json'))[-1]))
+for cat, items in data.get('categorized_news', {}).items():
+    print(f'【{cat}】')
+    for i, it in enumerate(items, 1):
+        print(f'  {i}. {it.get(\"title\", it.get(\"original_title\",\"\"))}')
+    print()
+"
+          fi
+
+      - name: 上传生成结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-output-${{ github.run_id }}
+          path: |
+            raw_news_*.json
+            news_*.md
+            logs/
+          if-no-files-found: warn
