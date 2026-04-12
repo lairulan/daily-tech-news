@@ -1,12 +1,12 @@
 ---
 name: daily-tech-news
-description: 每日AI科技财经资讯自动策展与发布。48个RSS源纯真实新闻，RSSHub多实例fallback，AI智能分类+补救机制，精美HTML排版，一键发布微信公众号。
-version: 4.3.1
+description: 每日AI科技财经资讯自动策展与发布。46个RSS源纯真实新闻，Claude Sonnet主力+DeepSeek-V3兜底，周一自动周报模式（卡片排版+本周专题），精美HTML排版，一键发布微信公众号。
+version: 4.5.0
 author: rulanlai
 tags: [news, automation, wechat, rss, ai]
 ---
 
-# Daily Tech News Publisher V4.3.1
+# Daily Tech News Publisher V4.5.0
 
 每日 AI/科技/财经资讯自动策展与发布系统。
 
