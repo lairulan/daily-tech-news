@@ -2038,6 +2038,75 @@ def generate_news_briefs(categorized: Dict[str, List[Dict]]) -> Dict[str, List[D
     log(f"简报生成完成: {idx}/{len(news_items_for_brief)} 条")
     return categorized
 
+def generate_feature_article(categorized: Dict[str, List[Dict]]):
+    """从本周15条新闻中选最重要的一条，写300-400字深度评述。返回 (title, content) 或 None。"""
+    log("正在生成本周专题文章...")
+
+    news_list_text = ""
+    idx = 1
+    for category, items in categorized.items():
+        for item in items:
+            news_list_text += f"{idx}. [{category}] {item.get('title', '')}"
+            brief = item.get('brief', '') or item.get('summary', '')[:100]
+            if brief:
+                news_list_text += f"\n   {brief}"
+            news_list_text += "\n\n"
+            idx += 1
+
+    prompt = f"""你是资深科技媒体主编。以下是本周15条最重要的AI/科技/财经新闻。
+
+{news_list_text}
+
+请完成两件事：
+1. 从中选出本周影响力最大、最值得深度解读的1条新闻
+2. 围绕这条新闻，写一篇300-400字的深度评述
+
+评述写作要求：
+- 标题：不超过20字，要有观点和吸引力（不能只是复述新闻标题）
+- 正文分3段，每段清晰：
+  * 第一段（80-100字）：事件背景与核心，回答"发生了什么"
+  * 第二段（150-180字）：深度分析，回答"为什么重要"，要有具体逻辑和数据/案例支撑
+  * 第三段（80-100字）：行业展望或给读者的思考启示
+- 语言：有观点、有判断，像主编评论而非新闻摘要
+- 不要套话，每一句都要有实质内容
+
+输出格式（仅输出JSON，不要其他文字）：
+{{"title": "评述标题（不超过20字）", "article": "正文全文（3段，每段之间用\\n\\n分隔）"}}"""
+
+    result = call_llm_api(prompt, max_tokens=1200)
+    if not result:
+        log("专题文章生成失败")
+        return None
+
+    # 清理并解析 JSON
+    result = result.strip()
+    if result.startswith('```'):
+        result = result.split('\n', 1)[-1]
+    if result.endswith('```'):
+        result = result.rsplit('\n', 1)[0]
+    result = result.strip()
+
+    try:
+        data = json.loads(result)
+        title = data.get("title", "").strip()
+        article = data.get("article", "").strip()
+        if title and article:
+            log(f"专题文章生成成功: {title[:20]}")
+            return (title, article)
+    except json.JSONDecodeError:
+        # 正则 fallback
+        title_match = re.search(r'"title"\s*:\s*"([^"]+)"', result)
+        article_match = re.search(r'"article"\s*:\s*"([\s\S]+?)"(?:\s*\})', result)
+        if title_match and article_match:
+            title = title_match.group(1).strip()
+            article = article_match.group(1).replace('\\n', '\n').strip()
+            log(f"专题文章（fallback解析）成功: {title[:20]}")
+            return (title, article)
+
+    log("专题文章 JSON 解析失败")
+    return None
+
+
 def call_doubao_api(prompt, max_tokens=2000, retries=3):
     """调用豆包 API（仅封面图使用，内容整理已迁移到 Claude）"""
     if not DOUBAO_API_KEY:
@@ -2106,7 +2175,7 @@ def call_llm_api(prompt, max_tokens=2000):
     """统一 LLM 入口：内容整理用 Claude Sonnet，封面图继续用豆包"""
     return call_claude_api(prompt, max_tokens)
 
-def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "", weekly: bool = False, week_range: str = "") -> str:
+def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "", weekly: bool = False, week_range: str = "", feature_article=None) -> str:
     """将分类后的新闻格式化为 HTML（使用 inline style，兼容微信公众号）"""
 
     # 定义分类颜色、渐变和emoji
@@ -2150,8 +2219,28 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
                 title = title + '。'
             # 最后一条新闻的 margin-bottom 为 0
             margin_style = "margin: 0 0 15px 0" if i < len(items) else "margin: 0 0 0 0"
-            # 序号使用圆形背景 + 白色数字（跟随板块颜色）
-            news_html += f'  <p style="{margin_style}; line-height: 2; color: #333; font-size: 15px;"><span style="display: inline-block; min-width: 24px; height: 24px; background: {color}; color: #fff; font-weight: bold; font-size: 13px; text-align: center; line-height: 24px; border-radius: 50%; margin-right: 12px;">{i:02d}</span>{title}</p>\n'
+
+            if weekly:
+                # 周报模式：卡片式布局（标题 + 简报 + 来源标签）
+                brief = item.get('brief', '') or ''
+                source = item.get('rss_source', '')
+                # brief 去尾句号避免与标题重复
+                if brief and not brief.endswith(('。', '！', '？', '…')):
+                    brief = brief + '。'
+                source_badge = f'<span style="display: inline-block; background: {color}22; color: {color}; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-top: 6px;">{source}</span>' if source else ''
+                brief_html = f'<p style="margin: 5px 0 0; font-size: 13px; color: #666; line-height: 1.6;">{brief}</p>' if brief else ''
+                news_html += (
+                    f'  <div style="{margin_style}; padding: 12px 14px; background: #f8f9fd; border-radius: 8px; border-left: 3px solid {color};">\n'
+                    f'    <p style="margin: 0; line-height: 1.7; color: #222; font-size: 15px; font-weight: bold;">'
+                    f'<span style="display: inline-block; min-width: 22px; height: 22px; background: {color}; color: #fff; font-weight: bold; font-size: 12px; text-align: center; line-height: 22px; border-radius: 50%; margin-right: 10px;">{i:02d}</span>{title}</p>\n'
+                    f'    {brief_html}\n'
+                    f'    {source_badge}\n'
+                    f'  </div>\n'
+                )
+            else:
+                # 日报模式：序号 + 标题（原有格式）
+                news_html += f'  <p style="{margin_style}; line-height: 2; color: #333; font-size: 15px;"><span style="display: inline-block; min-width: 24px; height: 24px; background: {color}; color: #fff; font-weight: bold; font-size: 13px; text-align: center; line-height: 24px; border-radius: 50%; margin-right: 12px;">{i:02d}</span>{title}</p>\n'
+
         news_html += '</div>\n'
         news_html += '</section>\n\n'
 
@@ -2253,6 +2342,25 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
 
     # 全部使用 inline style + 渐变背景，避免微信过滤
     microword_label = "本周微语" if weekly else "今日微语"
+
+    # 专题文章版块（仅周报模式）
+    feature_html = ""
+    if weekly and feature_article:
+        fa_title, fa_content = feature_article
+        # 将正文换行转为 <p> 标签
+        paragraphs = [p.strip() for p in fa_content.split('\n\n') if p.strip()]
+        fa_body_html = "".join(
+            f'<p style="margin: 0 0 15px 0; line-height: 1.9; font-size: 15px; color: rgba(255,255,255,0.92);">{p}</p>'
+            for p in paragraphs
+        )
+        feature_html = f"""
+<section style="margin: 30px 0 20px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius: 15px; padding: 25px 22px; box-shadow: 0 6px 20px rgba(15,52,96,0.35);">
+<p style="margin: 0 0 10px; font-size: 12px; letter-spacing: 3px; color: rgba(255,255,255,0.5); text-transform: uppercase;">本 周 专 题</p>
+<p style="margin: 0 0 18px; font-size: 20px; font-weight: bold; color: #ffffff; line-height: 1.4;">{fa_title}</p>
+<div style="width: 40px; height: 2px; background: linear-gradient(90deg, #4a90e2, #764ba2); margin: 0 0 18px; border-radius: 1px;"></div>
+{fa_body_html}
+</section>"""
+
     html_template = f"""<div style="max-width: 750px; width: 100%; margin: 0 auto; padding: 0 15px; font-family: 微软雅黑, sans-serif; background-color: #ffffff; color: #333; line-height: 1.8;">
 
 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px 0; text-align: center; border-radius: 10px; margin: 20px 0 30px; color: #ffffff; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
@@ -2261,7 +2369,7 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
 
 {news_html}
 <p style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 20px; border-radius: 8px; color: #ffffff; font-size: 15px; line-height: 1.8; margin: 30px 0 20px; text-align: left; box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);">【{microword_label}】{microword}</p>
-
+{feature_html}
 </div>"""
 
     return html_template, summary
@@ -2434,9 +2542,17 @@ def main():
     # 2.7 生成单行新闻简讯
     categorized_news = normalize_titles(categorized_news)
 
+    # 2.8 周报模式：���成简报 + 专题文章
+    feature_article = None
+    if args.weekly:
+        log("📝 周报模式：生成每条新闻简报...")
+        categorized_news = generate_news_briefs(categorized_news)
+        log("📌 周报模式：生成本周专题文章...")
+        feature_article = generate_feature_article(categorized_news)
+
     # 3. 格式化为 HTML（同时生成智能摘要）
     log("正在格式化新闻...")
-    html_content, summary = format_news_to_html(categorized_news, today_display_str, lunar_date, weekday, weekly=args.weekly, week_range=week_range)
+    html_content, summary = format_news_to_html(categorized_news, today_display_str, lunar_date, weekday, weekly=args.weekly, week_range=week_range, feature_article=feature_article)
 
     if not html_content:
         log("格式化失败")
