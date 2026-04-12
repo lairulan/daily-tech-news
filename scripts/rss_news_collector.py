@@ -28,6 +28,7 @@ import urllib.request
 import urllib.error
 import ssl
 import xml.etree.ElementTree as ET
+import argparse
 from datetime import datetime, timedelta
 from typing import List, Dict
 import re
@@ -993,16 +994,16 @@ def fetch_tavily_news(category: str, needed: int = 10) -> List[Dict]:
     return all_items
 
 
-def fetch_source_with_fallback(source: Dict) -> tuple:
+def fetch_source_with_fallback(source: Dict, hours_ago: int = 24) -> tuple:
     """并发辅助函数：获取单个 RSS 源（含 fallback），返回抓取结果与健康信息。"""
-    items = fetch_rss_items(source['url'], source['limit'])
+    items = fetch_rss_items(source['url'], source['limit'], hours_ago)
     used_url = source['url']
     used_fallback = False
 
     # 如果主URL失败且有fallback，尝试备选URL
     if len(items) == 0 and 'fallback_urls' in source:
         for fallback_url in source['fallback_urls']:
-            items = fetch_rss_items(fallback_url, source['limit'])
+            items = fetch_rss_items(fallback_url, source['limit'], hours_ago)
             if len(items) > 0:
                 used_url = fallback_url
                 used_fallback = True
@@ -1021,22 +1022,22 @@ def fetch_source_with_fallback(source: Dict) -> tuple:
     }
 
 
-def collect_all_news() -> List[Dict]:
+def collect_all_news(hours_ago: int = 24) -> List[Dict]:
     """收集所有 RSS 新闻（并发模式，10线程），支持 fallback URLs"""
     global LAST_RSS_HEALTH
 
-    # 计算时间范围用于日志（过去24小时）
+    # 计算时间范围用于日志
     now = datetime.now().astimezone()
-    cutoff_time = now - timedelta(hours=24)
+    cutoff_time = now - timedelta(hours=hours_ago)
 
     log(f"开始收集 RSS 新闻（并发模式，{len(ALL_RSS_SOURCES)} 个源）...")
-    log(f"时间过滤范围: 过去24小时 ({cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
+    log(f"时间过滤范围: 过去{hours_ago}小时 ({cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} - {now.strftime('%Y-%m-%d %H:%M:%S')})")
 
     all_items = []
     source_health = []
 
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_source_with_fallback, source): source for source in ALL_RSS_SOURCES}
+        futures = {executor.submit(fetch_source_with_fallback, source, hours_ago): source for source in ALL_RSS_SOURCES}
         for future in as_completed(futures):
             result = future.result()
             source_name = result["source_name"]
@@ -1099,12 +1100,13 @@ def collect_all_news() -> List[Dict]:
     return unique_items
 
 
-def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
+def classify_news_with_ai(news_items: List[Dict], weekly: bool = False) -> Dict[str, List[Dict]]:
     """使用 AI 将新闻分类到 3 个类别"""
     log("正在使用 AI 分类新闻...")
 
-    # 准备新闻列表（最多40条，确保各分类有足够候选）
-    news_list = news_items[:40]
+    # 周报模式扩大候选池到80条
+    pool_size = 80 if weekly else 40
+    news_list = news_items[:pool_size]
 
     # 构建分类 prompt
     news_text = ""
@@ -1114,7 +1116,12 @@ def classify_news_with_ai(news_items: List[Dict]) -> Dict[str, List[Dict]]:
             news_text += f"   摘要: {item['summary'][:200]}\n"
         news_text += f"   来源: {item['rss_source']}\n\n"
 
-    prompt = f"""你是专业新闻编辑，负责筛选和分类今日科技财经新闻。请从以下新闻中，为每个类别各选出5条最重要的新闻。
+    if weekly:
+        intro = "你是专业新闻编辑，负责筛选和分类本周科技财经新闻。请从以下新闻中，为每个类别各选出5条本周最重要的新闻。"
+    else:
+        intro = "你是专业新闻编辑，负责筛选和分类今日科技财经新闻。请从以下新闻中，为每个类别各选出5条最重要的新闻。"
+
+    prompt = f"""{intro}
 
 {news_text}
 
@@ -2099,7 +2106,7 @@ def call_llm_api(prompt, max_tokens=2000):
     """统一 LLM 入口：内容整理用 Claude Sonnet，封面图继续用豆包"""
     return call_claude_api(prompt, max_tokens)
 
-def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "") -> str:
+def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, lunar_date: str = "", weekday: str = "", weekly: bool = False, week_range: str = "") -> str:
     """将分类后的新闻格式化为 HTML（使用 inline style，兼容微信公众号）"""
 
     # 定义分类颜色、渐变和emoji
@@ -2154,7 +2161,25 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
         for item in items:
             news_texts.append(f"【{category}】{item.get('title', '')}")
 
-    microword_prompt = f"""根据以下新闻标题，写一句今日科技感言。
+    if weekly:
+        microword_prompt = f"""根据以下本周新闻标题，写一句本周科技感言。
+
+新闻标题:
+{chr(10).join(news_texts[:10])}
+
+要求:
+1. 25-40字，句子语法完整，语义通顺，不能出现乱码或残句
+2. 从这批新闻背后提炼出一个深层洞察，不要直接复述新闻内容
+3. 与AI/科技/商业趋势相关，有时代感，有哲理
+4. 使用标点符号（逗号、句号），句式清晰
+5. 只输出感言本身，不要任何前缀或说明
+
+风格参考（不要照抄）：
+- 科技的边界每天都在后退，真正的壁垒始终是人的认知与格局。
+- 当所有人都在追逐风口，定义规则的人往往已悄悄赢得下一局。
+- AI不会取代人，但懂得用AI的人，终将重塑每个行业的生存法则。"""
+    else:
+        microword_prompt = f"""根据以下新闻标题，写一句今日科技感言。
 
 新闻标题:
 {chr(10).join(news_texts[:10])}
@@ -2209,17 +2234,25 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
     if not summary.endswith(('。', '！', '？', '…')):
         summary = summary + '。'
 
-    # 构建日期卡片内容（三行格式）
+    # 构建日期卡片内容
     date_card_lines = []
-    if lunar_date:
-        date_card_lines.append(f'<div style="font-size: 13px; margin-bottom: 6px; color: rgba(255,255,255,0.85);">{lunar_date}</div>')
-    if weekday:
-        date_card_lines.append(f'<div style="font-size: 32px; margin-bottom: 6px; font-weight: bold; letter-spacing: 2px;">{weekday}</div>')
-    date_card_lines.append(f'<div style="font-size: 16px; font-weight: 500; color: rgba(255,255,255,0.95);">{yesterday_str}</div>')
+    if weekly and week_range:
+        # 周报模式：显示周期范围
+        date_card_lines.append(f'<div style="font-size: 13px; margin-bottom: 6px; color: rgba(255,255,255,0.85);">本周回顾</div>')
+        date_card_lines.append(f'<div style="font-size: 28px; margin-bottom: 6px; font-weight: bold; letter-spacing: 2px;">{week_range}</div>')
+        date_card_lines.append(f'<div style="font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.9);">AI · 科技 · 财经</div>')
+    else:
+        # 日报模式：显示农历 + 星期 + 日期
+        if lunar_date:
+            date_card_lines.append(f'<div style="font-size: 13px; margin-bottom: 6px; color: rgba(255,255,255,0.85);">{lunar_date}</div>')
+        if weekday:
+            date_card_lines.append(f'<div style="font-size: 32px; margin-bottom: 6px; font-weight: bold; letter-spacing: 2px;">{weekday}</div>')
+        date_card_lines.append(f'<div style="font-size: 16px; font-weight: 500; color: rgba(255,255,255,0.95);">{yesterday_str}</div>')
 
     date_card_html = '\n'.join(date_card_lines)
 
     # 全部使用 inline style + 渐变背景，避免微信过滤
+    microword_label = "本周微语" if weekly else "今日微语"
     html_template = f"""<div style="max-width: 750px; width: 100%; margin: 0 auto; padding: 0 15px; font-family: 微软雅黑, sans-serif; background-color: #ffffff; color: #333; line-height: 1.8;">
 
 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px 0; text-align: center; border-radius: 10px; margin: 20px 0 30px; color: #ffffff; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
@@ -2227,7 +2260,7 @@ def format_news_to_html(categorized: Dict[str, List[Dict]], yesterday_str: str, 
 </div>
 
 {news_html}
-<p style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 20px; border-radius: 8px; color: #ffffff; font-size: 15px; line-height: 1.8; margin: 30px 0 20px; text-align: left; box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);">【今日微语】{microword}</p>
+<p style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 20px; border-radius: 8px; color: #ffffff; font-size: 15px; line-height: 1.8; margin: 30px 0 20px; text-align: left; box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);">【{microword_label}】{microword}</p>
 
 </div>"""
 
@@ -2256,20 +2289,39 @@ def save_raw_news(news_items: List[Dict], categorized: Dict[str, List[Dict]], da
 
 def main():
     """主函数"""
+    parser = argparse.ArgumentParser(description="RSS 新闻收集器")
+    parser.add_argument("--weekly", action="store_true", help="周报模式（收集过去7天新闻）")
+    parser.add_argument("--dry-run", action="store_true", help="试运行（不写文件）")
+    args = parser.parse_args()
+
     log("=" * 50)
-    log("RSS 新闻收集开始")
+    if args.weekly:
+        log("RSS 新闻收集开始（周报模式）")
+    else:
+        log("RSS 新闻收集开始")
 
     # 计算日期（使用今天作为显示日期）
     today = datetime.now()
     today_display_str = today.strftime("%Y年%m月%d日")
     today_str = today.strftime("%Y%m%d")
 
-    # 计算农历和星期（使用今天）
+    # 计算农历和星期（使用今天，仅日报模式用到）
     lunar_date = get_traditional_lunar_date(today)
     weekday = get_weekday_name(today)
 
+    # 周报模式：计算上周周一到周日
+    if args.weekly:
+        hours_ago = 168  # 7天
+        week_end = today - timedelta(days=1)    # 上周日
+        week_start = today - timedelta(days=7)  # 上周一
+        week_range = f"{week_start.month}月{week_start.day}日 — {week_end.month}月{week_end.day}日"
+        log(f"周报日期范围: {week_start.strftime('%Y年%m月%d日')} - {week_end.strftime('%Y年%m月%d日')}")
+    else:
+        hours_ago = 24
+        week_range = ""
+
     # 1. 收集所有 RSS 新闻
-    all_news = collect_all_news()
+    all_news = collect_all_news(hours_ago=hours_ago)
 
     # 1.5 RSS 新闻数量检查（不使用 AI 补充，确保内容全部来自真实 RSS 源）
     if len(all_news) == 0:
@@ -2280,7 +2332,7 @@ def main():
     log(f"✅ 共获取 {len(all_news)} 条真实 RSS 新闻，进入分类流程")
 
     # 2. 使用 AI 分类
-    categorized_news = classify_news_with_ai(all_news)
+    categorized_news = classify_news_with_ai(all_news, weekly=args.weekly)
 
     # 2.4 规范化分类键名称（统一使用无空格的版本）
     normalized_categorized = {}
@@ -2384,7 +2436,7 @@ def main():
 
     # 3. 格式化为 HTML（同时生成智能摘要）
     log("正在格式化新闻...")
-    html_content, summary = format_news_to_html(categorized_news, today_display_str, lunar_date, weekday)
+    html_content, summary = format_news_to_html(categorized_news, today_display_str, lunar_date, weekday, weekly=args.weekly, week_range=week_range)
 
     if not html_content:
         log("格式化失败")

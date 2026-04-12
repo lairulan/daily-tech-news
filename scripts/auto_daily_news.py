@@ -386,7 +386,7 @@ def call_llm_api(prompt, max_tokens=2000):
     """调用豆包 API"""
     return call_doubao_api(prompt, max_tokens)
 
-def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date):
+def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date, weekly=False):
     """使用 RSS 收集器生成真实新闻 HTML 内容
 
     Args:
@@ -394,6 +394,7 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
         today_lunar: 今天的农历日期
         today_weekday: 今天的星期
         today_date: 今天的公历日期
+        weekly: 是否为周报模式
     """
     log("正在从 RSS 源收集真实新闻...")
 
@@ -401,8 +402,11 @@ def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today
     rss_script = os.path.join(SCRIPT_DIR, "rss_news_collector.py")
     try:
         log(f"调用 RSS 收集器: {rss_script}")
+        cmd = ["python3", rss_script]
+        if weekly:
+            cmd.append("--weekly")
         result = subprocess.run(
-            ["python3", rss_script],
+            cmd,
             capture_output=True,
             text=True,
             timeout=900,  # 15分钟超时，适配多源RSS采集与网络抖动
@@ -639,13 +643,26 @@ def main():
     # 获取传统农历日期
     today_lunar = get_traditional_lunar_date(today)  # 例如: "乙巳年冬月廿七"
 
+    # 判断是否为周一（周报模式）
+    is_monday = today.weekday() == 0
+    if is_monday:
+        week_end = today - timedelta(days=1)    # 上周日
+        week_start = today - timedelta(days=7)  # 上周一
+        report_title = (
+            f"{week_start.month}月{week_start.day}日-{week_end.month}月{week_end.day}日"
+            "AI科技财经周报"
+        )
+        log(f"周一模式：生成周报，标题: {report_title}")
+    else:
+        report_title = f"{today.month}月{today.day}日AI科技财经日报"
+
     log(f"今天日期: {today_date} {today_weekday}")
     log(f"农历日期: {today_lunar}")
     log(f"新闻目标日期: {yesterday_str}")
 
     # 1. 生成新闻内容（优先使用 RSS 收集器获取真实新闻）
     log("正在生成新闻内容...")
-    content = generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date)
+    content = generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date, weekly=is_monday)
 
     # 如果 RSS 收集失败，直接退出，不使用AI生成虚假新闻（确保内容真实性）
     if not content:
@@ -673,7 +690,7 @@ def main():
 
     # 2. 生成封面图
     log("正在生成封面图...")
-    cover_url = generate_cover_image(f"{today.month}月{today.day}日AI科技财经日报")
+    cover_url = generate_cover_image(report_title)
     if not cover_url:
         log("封面图生成失败，将不使用封面图发布")
         cover_url = None
@@ -682,7 +699,7 @@ def main():
     if args.dry_run:
         log("=" * 50)
         log("✅ 试运行完成")
-        log(f"标题: {today.month}月{today.day}日AI科技财经日报")
+        log(f"标题: {report_title}")
         log(f"内容长度: {len(content)} 字符")
         log(f"封面图: {cover_url or '无'}")
         log("=" * 50)
@@ -700,7 +717,7 @@ def main():
 
     # 4. 发布到公众号
     log("正在发布到公众号...")
-    title = f"{today.month}月{today.day}日AI科技财经日报"
+    title = report_title
     success = publish_to_wechat(title, content, cover_url)
 
     if success:
