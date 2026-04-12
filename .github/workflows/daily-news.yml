@@ -36,6 +36,7 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           MARKETAUX_API_TOKEN: ${{ secrets.MARKETAUX_API_TOKEN }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: |
           set -euo pipefail
           cd scripts

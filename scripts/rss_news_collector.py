@@ -383,6 +383,7 @@ def is_valid_news_title(title: str) -> bool:
 DOUBAO_API_KEY = get_env_var("DOUBAO_API_KEY", required=False)
 ANTHROPIC_API_KEY = get_env_var("ANTHROPIC_API_KEY", required=False)
 ANTHROPIC_BASE_URL = get_env_var("ANTHROPIC_BASE_URL", required=False) or "https://api.anthropic.com"
+TAVILY_API_KEY = get_env_var("TAVILY_API_KEY", required=False)
 # 工作目录 - 兼容本地和 GitHub Actions
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
@@ -394,6 +395,8 @@ if not ANTHROPIC_API_KEY:
     sys.exit(1)
 if not DOUBAO_API_KEY:
     print("警告: 未设置 DOUBAO_API_KEY，封面图生成将跳过")
+if not TAVILY_API_KEY:
+    print("警告: 未设置 TAVILY_API_KEY，Tavily 搜索补救将跳过")
 
 # RSSHub 镜像实例列表（用于 fallback）
 RSSHUB_INSTANCES = [
@@ -894,8 +897,103 @@ def maybe_collect_external_news(source_health: List[Dict[str, str]]) -> List[Dic
     })
     return items
 
-def fetch_source_with_fallback(source: Dict) -> tuple:
-    """并发辅助函数：获取单个 RSS 源（含 fallback），返回抓取结果与健康信息。"""
+def fetch_tavily_news(category: str, needed: int = 10) -> List[Dict]:
+    """使用 Tavily 搜索补充指定分类的新闻（当 RSS 源不足时触发）。
+
+    每次调用消耗 1-3 次 Tavily API quota，仅在 RSS 不足时触发。
+    """
+    if not TAVILY_API_KEY:
+        return []
+
+    today = datetime.now()
+    month_en = today.strftime("%B %Y")
+    month_cn = f"{today.year}年{today.month}月"
+
+    # 每个分类两条查询词：英文（抓国际源）+ 中文（抓国内源）
+    queries_map: Dict[str, List[str]] = {
+        "AI 领域": [
+            f"AI LLM model release launch announcement {month_en}",
+            f"AI大模型 发布 上线 {month_cn}",
+            f"OpenAI Anthropic Google Meta xAI AI news {month_en}",
+        ],
+        "科技动态": [
+            f"tech product launch gadget Apple Google Samsung {month_en}",
+            f"科技产品 发布 上线 更新 {month_cn}",
+        ],
+        "财经要闻": [
+            f"startup funding IPO acquisition earnings tech {month_en}",
+            f"融资 上市 并购 财报 营收 {month_cn}",
+        ],
+    }
+
+    # 不可信来源域名（过滤视频/社交/聚合导航页）
+    SKIP_DOMAINS = (
+        "youtube.com", "instagram.com", "facebook.com", "twitter.com",
+        "x.com", "tiktok.com", "podcasts.apple.com", "reddit.com",
+        "linkedin.com", "aiopenminds.com", "ai.cnmo.com",
+    )
+
+    queries = queries_map.get(category, [])
+    all_items: List[Dict] = []
+    seen_urls: set = set()
+
+    for query in queries:
+        if len(all_items) >= needed * 2:
+            break
+        try:
+            resp = requests.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": TAVILY_API_KEY,
+                    "query": query,
+                    "search_depth": "basic",
+                    "max_results": 5,
+                    "days": 2,
+                    "include_answer": False,
+                },
+                headers=HTTP_HEADERS,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+
+            for result in results:
+                url = result.get("url", "")
+                if not url or url in seen_urls:
+                    continue
+                if any(d in url for d in SKIP_DOMAINS):
+                    continue
+                seen_urls.add(url)
+
+                title = clean_html_content(result.get("title", ""))
+                content = clean_html_content(result.get("content", ""))
+                if not title or len(title) < 8:
+                    continue
+
+                domain_match = re.search(r"https?://(?:www\.)?([^/]+)", url)
+                domain = domain_match.group(1) if domain_match else "tavily"
+
+                now = datetime.now()
+                all_items.append({
+                    "title": title,
+                    "original_title": title,
+                    "summary": content[:500],
+                    "original_summary": content[:500],
+                    "link": url,
+                    "published": now.strftime("%a, %d %b %Y %H:%M:%S +0000"),
+                    "parsed_time": now.strftime("%Y-%m-%d %H:%M:%S"),
+                    "source": domain,
+                    "rss_source": "Tavily",
+                    "source_category": category,
+                })
+        except Exception as e:
+            log(f"Tavily 搜索失败（{query[:40]}）: {e}")
+
+    log(f"Tavily 搜索完成（{category}）: 候选 {len(all_items)} 条")
+    return all_items
+
+
+def fetch_source_with_fallback(source: Dict) -> tuple:    """并发辅助函数：获取单个 RSS 源（含 fallback），返回抓取结果与健康信息。"""
     items = fetch_rss_items(source['url'], source['limit'])
     used_url = source['url']
     used_fallback = False
@@ -2202,7 +2300,38 @@ def main():
         else:
             log(f"  没有未使用的新闻可供补充")
 
-    # 2.55 最终分类清理：确保只有3个标准分类
+    # 2.52 Tavily 二级补救：RSS + 规则补救后仍不足5条时，用搜索引擎补充
+    # 注意：键名此时还是带空格版本（"AI 领域"），Tavily 函数使用相同键
+    tavily_needed_cats = [
+        cat for cat in ["AI 领域", "科技动态", "财经要闻"]
+        if len(categorized_news.get(cat, [])) < 5
+    ]
+    if tavily_needed_cats and TAVILY_API_KEY:
+        log(f"🔍 Tavily 二级补救（{', '.join(tavily_needed_cats)}）...")
+        for cat in tavily_needed_cats:
+            current = categorized_news.get(cat, [])
+            needed = 5 - len(current)
+            tavily_items = fetch_tavily_news(cat, needed * 2)
+            if not tavily_items:
+                continue
+            # 去重：与已有标题做相似度比对
+            existing_lower = {item.get("title", "").lower() for item in current}
+            filtered = []
+            for item in tavily_items:
+                t = item.get("title", "").lower()
+                if any(is_similar_title(t, et) for et in existing_lower):
+                    continue
+                if not is_valid_news_title(item.get("title", "")):
+                    continue
+                filtered.append(item)
+                existing_lower.add(t)
+            add_count = min(needed, len(filtered))
+            categorized_news[cat] = current + filtered[:add_count]
+            log(f"  {cat}: Tavily 补充 {add_count} 条")
+    elif tavily_needed_cats:
+        log(f"  ⚠️ 分类仍不足5条但 TAVILY_API_KEY 未设置: {', '.join(tavily_needed_cats)}")
+
+
     final_categories = ["AI领域", "科技动态", "财经要闻"]
     cleaned_categorized = {}
     for cat in final_categories:
