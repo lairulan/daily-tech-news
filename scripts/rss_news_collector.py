@@ -993,7 +993,8 @@ def fetch_tavily_news(category: str, needed: int = 10) -> List[Dict]:
     return all_items
 
 
-def fetch_source_with_fallback(source: Dict) -> tuple:    """并发辅助函数：获取单个 RSS 源（含 fallback），返回抓取结果与健康信息。"""
+def fetch_source_with_fallback(source: Dict) -> tuple:
+    """并发辅助函数：获取单个 RSS 源（含 fallback），返回抓取结果与健康信息。"""
     items = fetch_rss_items(source['url'], source['limit'])
     used_url = source['url']
     used_fallback = False
