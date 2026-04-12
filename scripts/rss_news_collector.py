@@ -382,6 +382,7 @@ def is_valid_news_title(title: str) -> bool:
 
 # 配置
 DOUBAO_API_KEY = get_env_var("DOUBAO_API_KEY", required=False)
+DEEPSEEK_API_KEY = get_env_var("DEEPSEEK_API_KEY", required=False)
 ANTHROPIC_API_KEY = get_env_var("ANTHROPIC_API_KEY", required=False)
 ANTHROPIC_BASE_URL = get_env_var("ANTHROPIC_BASE_URL", required=False) or "https://api.anthropic.com"
 TAVILY_API_KEY = get_env_var("TAVILY_API_KEY", required=False)
@@ -390,10 +391,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(WORK_DIR, "logs", "rss-news.log")
 
-# 检查 API Key：Claude 用于内容整理，豆包用于封面图
+# 检查 API Key：Claude 用于内容整理，DeepSeek 作为文本兜底，豆包 Seedream 用于封面图
 if not ANTHROPIC_API_KEY:
     print("错误: 未设置 ANTHROPIC_API_KEY（环境变量或 .env.local）")
     sys.exit(1)
+if not DEEPSEEK_API_KEY:
+    print("警告: 未设置 DEEPSEEK_API_KEY，Claude 失败时将无文本兜底")
 if not DOUBAO_API_KEY:
     print("警告: 未设置 DOUBAO_API_KEY，封面图生成将跳过")
 if not TAVILY_API_KEY:
@@ -2108,7 +2111,7 @@ def generate_feature_article(categorized: Dict[str, List[Dict]]):
 
 
 def call_doubao_api(prompt, max_tokens=2000, retries=3):
-    """调用豆包 API（仅封面图使用，内容整理已迁移到 Claude）"""
+    """调用豆包 API（仅封面图使用，内容整理已迁移到 Claude/DeepSeek）"""
     if not DOUBAO_API_KEY:
         return None
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
@@ -2139,13 +2142,45 @@ def call_doubao_api(prompt, max_tokens=2000, retries=3):
             log(f"豆包 API 调用失败（第 {attempt + 1} 次尝试）: {e}")
 
 
+def call_deepseek_api(prompt, max_tokens=2000, retries=2):
+    """调用 DeepSeek-V3 API（Claude 不可用时的文本兜底）"""
+    if not DEEPSEEK_API_KEY:
+        return None
+    url = "https://api.deepseek.com/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3
+    }
+    for attempt in range(retries + 1):
+        try:
+            if attempt > 0:
+                wait = min(5 * (2 ** (attempt - 1)), 30)
+                log(f"DeepSeek API 重试第 {attempt} 次（等待 {wait}s）...")
+                time.sleep(wait)
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            if attempt == retries:
+                log(f"DeepSeek API 调用失败（已重试 {retries} 次）: {e}")
+                return None
+            log(f"DeepSeek API 调用失败（第 {attempt + 1} 次尝试）: {e}")
+
+
 def call_claude_api(prompt, max_tokens=2000, retries=2):
     """调用 Claude Sonnet API 进行新闻分类、改写、微语生成"""
     try:
         import anthropic
     except ImportError:
-        log("anthropic 包未安装，回退到豆包 API")
-        return call_doubao_api(prompt, max_tokens)
+        log("anthropic 包未安装，回退到 DeepSeek API")
+        return call_deepseek_api(prompt, max_tokens)
 
     client = anthropic.Anthropic(
         api_key=ANTHROPIC_API_KEY,
@@ -2166,8 +2201,8 @@ def call_claude_api(prompt, max_tokens=2000, retries=2):
             return msg.content[0].text
         except Exception as e:
             if attempt == retries:
-                log(f"Claude API 调用失败（已重试 {retries} 次）: {e}，回退到豆包")
-                return call_doubao_api(prompt, max_tokens)
+                log(f"Claude API 调用失败（已重试 {retries} 次）: {e}，回退到 DeepSeek")
+                return call_deepseek_api(prompt, max_tokens)
             log(f"Claude API 调用失败（第 {attempt + 1} 次尝试）: {e}")
 
 

@@ -35,6 +35,7 @@ except ImportError:
 # 配置
 WECHAT_API_KEY = get_env_var("WECHAT_API_KEY", required=False)
 DOUBAO_API_KEY = get_env_var("DOUBAO_API_KEY", required=False)
+DEEPSEEK_API_KEY = get_env_var("DEEPSEEK_API_KEY", required=False)
 # 从环境变量读取 AppID，默认使用三更AI
 APPID = get_env_var("WECHAT_APP_ID", default="wx5c5f1c55d02d1354", required=False)  # 三更AI
 
@@ -114,8 +115,8 @@ def check_environment(verbose: bool = True) -> bool:
     if not WECHAT_API_KEY:
         errors.append("未设置 WECHAT_API_KEY 环境变量")
 
-    if not DOUBAO_API_KEY:
-        errors.append("未设置 DOUBAO_API_KEY 环境变量")
+    if not DEEPSEEK_API_KEY:
+        warnings.append("未设置 DEEPSEEK_API_KEY，摘要生成将无法运行")
 
     if not get_env_var("WECHAT_APP_ID", required=False):
         warnings.append(f"未设置 WECHAT_APP_ID，将使用默认公众号 (AppID: {APPID})")
@@ -152,7 +153,8 @@ def check_environment(verbose: bool = True) -> bool:
         print("\n📋 环境变量:")
         print(f"  {'✅' if WECHAT_API_KEY else '❌'} WECHAT_API_KEY")
         print(f"  {'✅' if get_env_var('WECHAT_APP_ID', required=False) else '⚠️'} WECHAT_APP_ID")
-        print(f"  {'✅' if DOUBAO_API_KEY else '❌'} DOUBAO_API_KEY")
+        print(f"  {'✅' if DEEPSEEK_API_KEY else '⚠️'} DEEPSEEK_API_KEY")
+        print(f"  {'✅' if DOUBAO_API_KEY else '⚠️'} DOUBAO_API_KEY (封面图)")
         print(f"  {'⚠️' if SSL_VERIFY is False else '✅'} WECHAT_SSL_VERIFY")
 
         print("\n📁 脚本文件:")
@@ -358,7 +360,7 @@ def extract_text_from_html(html_content):
     return text
 
 def call_doubao_api(prompt, max_tokens=2000):
-    """调用豆包 API 生成内容"""
+    """调用豆包 API 生成内容（已废弃文本用途，保留供参考）"""
     if not DOUBAO_API_KEY:
         return None
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
@@ -382,9 +384,34 @@ def call_doubao_api(prompt, max_tokens=2000):
         return None
 
 
+def call_deepseek_api(prompt, max_tokens=2000):
+    """调用 DeepSeek-V3 API 生成内容（用于摘要等文本任务）"""
+    if not DEEPSEEK_API_KEY:
+        return None
+    url = "https://api.deepseek.com/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        log(f"DeepSeek API 调用失败: {e}")
+        return None
+
+
 def call_llm_api(prompt, max_tokens=2000):
-    """调用豆包 API"""
-    return call_doubao_api(prompt, max_tokens)
+    """调用 DeepSeek-V3 API"""
+    return call_deepseek_api(prompt, max_tokens)
 
 def generate_news_html_with_rss(yesterday_str, today_lunar, today_weekday, today_date, weekly=False):
     """使用 RSS 收集器生成真实新闻 HTML 内容
