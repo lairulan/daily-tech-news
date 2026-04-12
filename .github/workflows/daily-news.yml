@@ -90,17 +90,9 @@ jobs:
           echo "任务执行时间: $(date)"
           echo ""
           echo "=== 生成的新闻标题 ==="
-          if ls raw_news_*.json 1>/dev/null 2>&1; then
-            python3 -c "
-import json, glob
-data = json.load(open(sorted(glob.glob('raw_news_*.json'))[-1]))
-for cat, items in data.get('categorized_news', {}).items():
-    print(f'【{cat}】')
-    for i, it in enumerate(items, 1):
-        print(f'  {i}. {it.get(\"title\", it.get(\"original_title\",\"\"))}')
-    print()
-"
-          fi
+          for f in raw_news_*.json; do
+            [ -f "$f" ] && jq -r '.categorized_news | to_entries[] | "[\(.key)]", (.value[] | "  \(env.num // "")- \(.title // .original_title // "(无标题)")"), ""' "$f" && break
+          done || echo "(无生成文件)"
 
       - name: 上传生成结果
         if: always()
