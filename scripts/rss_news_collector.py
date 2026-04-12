@@ -111,6 +111,7 @@ SITE_NOISE_TOKENS = {
     "钛媒体", "OSCHINA", "Wired", "TechCrunch", "Engadget", "Ars Technica",
     "MarketWatch", "Forbes", "CNBC", "VentureBeat", "Yahoo Finance",
     "Win10", "Win11", "AI慕课学院", "极客购", "要知App", "软媒魔方", "IT圈",
+    "InfoQ",
 }
 
 HARD_EXCLUDE_KEYWORDS = [
@@ -1534,7 +1535,13 @@ def shorten_title(title: str, max_len: int = 52) -> str:
         title = compacted
 
     if len(title) > max_len:
-        title = title[:max_len].rstrip("，,、；;：:")
+        # 优先截断到最后一个完整分句（逗号前），避免半句话
+        truncated = title[:max_len]
+        last_comma = max(truncated.rfind("，"), truncated.rfind(","))
+        if last_comma > max_len // 2:
+            title = truncated[:last_comma]
+        else:
+            title = truncated.rstrip("，,、；;：:")
 
     return compact_title_text(title)
 
